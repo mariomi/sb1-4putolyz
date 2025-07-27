@@ -1,0 +1,283 @@
+import { createClient } from 'npm:@supabase/supabase-js@2'
+import { Resend } from 'npm:resend@4'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+}
+
+interface QueueItem {
+  id: string
+  campaign_id: string
+  contact_id: string
+  sender_id: string
+  scheduled_for: string
+  contact: {
+    email: string
+    first_name: string
+    last_name: string
+  }
+  sender: {
+    email_from: string
+    display_name: string
+    domain: string
+    daily_limit: number
+    emails_sent_today: number
+  }
+  campaign: {
+    name: string
+    subject: string
+    html_content: string
+  }
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders })
+  }
+
+  try {
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    )
+
+    const resend = new Resend(Deno.env.get('RESEND_API_KEY')!)
+
+    console.log('🚀 Campaign processor started')
+
+    // Get pending queue items that are ready to be sent
+    const now = new Date().toISOString()
+    const { data: queueItems, error: queueError } = await supabase
+      .from('campaign_queues')
+      .select(`
+        *,
+        contact:contacts!inner(email, first_name, last_name),
+        sender:senders!inner(email_from, display_name, domain, daily_limit, emails_sent_today, current_day, is_active),
+        campaign:campaigns!inner(name, subject, html_content, status)
+      `)
+      .eq('status', 'pending')
+      .lte('scheduled_for', now)
+      .eq('sender.is_active', true)
+      .eq('campaign.status', 'sending')
+      .limit(50)
+
+    if (queueError) {
+      console.error('❌ Error fetching queue items:', queueError)
+      throw queueError
+    }
+
+    console.log(`📧 Found ${queueItems?.length || 0} emails ready to send`)
+
+    if (!queueItems || queueItems.length === 0) {
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          message: 'No emails ready to send',
+          processed: 0
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    let processedCount = 0
+    let sentCount = 0
+    let failedCount = 0
+
+    // Process each queue item
+    for (const item of queueItems as QueueItem[]) {
+      try {
+        // Check if sender has reached daily limit
+        if (item.sender.emails_sent_today >= item.sender.daily_limit) {
+          console.log(`⏸️ Sender ${item.sender.email_from} has reached daily limit`)
+          continue
+        }
+
+        // Mark as processing
+        await supabase
+          .from('campaign_queues')
+          .update({ 
+            status: 'processing',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', item.id)
+
+        // Send email via Resend
+        const emailData = {
+          from: `${item.sender.display_name} <${item.sender.email_from}>`,
+          to: [item.contact.email],
+          subject: item.campaign.subject,
+          html: item.campaign.html_content.replace(/{{first_name}}/g, item.contact.first_name)
+            .replace(/{{last_name}}/g, item.contact.last_name)
+            .replace(/{{email}}/g, item.contact.email),
+        }
+
+        console.log(`📤 Sending email to ${item.contact.email} from ${item.sender.email_from}`)
+
+        const { data: emailResult, error: emailError } = await resend.emails.send(emailData)
+
+        if (emailError) {
+          console.error(`❌ Failed to send email to ${item.contact.email}:`, emailError)
+          
+          // Mark as failed and log error
+          await Promise.all([
+            supabase
+              .from('campaign_queues')
+              .update({ 
+                status: 'failed',
+                error_message: emailError.message,
+                retry_count: item.retry_count + 1,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', item.id),
+            
+            supabase
+              .from('logs')
+              .insert({
+                campaign_id: item.campaign_id,
+                queue_entry_id: item.id,
+                sender_id: item.sender_id,
+                contact_id: item.contact_id,
+                event_type: 'failed',
+                event_data: {
+                  error: emailError.message,
+                  email: item.contact.email,
+                  sender: item.sender.email_from
+                }
+              })
+          ])
+          
+          failedCount++
+        } else {
+          console.log(`✅ Email sent successfully to ${item.contact.email}, ID: ${emailResult.id}`)
+          
+          // Mark as sent and update sender stats
+          await Promise.all([
+            supabase
+              .from('campaign_queues')
+              .update({ 
+                status: 'sent',
+                sent_at: new Date().toISOString(),
+                resend_email_id: emailResult.id,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', item.id),
+            
+            supabase
+              .from('senders')
+              .update({ 
+                emails_sent_today: item.sender.emails_sent_today + 1,
+                last_sent_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', item.sender_id),
+            
+            supabase
+              .from('logs')
+              .insert({
+                campaign_id: item.campaign_id,
+                queue_entry_id: item.id,
+                sender_id: item.sender_id,
+                contact_id: item.contact_id,
+                event_type: 'sent',
+                event_data: {
+                  resend_email_id: emailResult.id,
+                  email: item.contact.email,
+                  sender: item.sender.email_from
+                }
+              })
+          ])
+          
+          sentCount++
+        }
+        
+        processedCount++
+        
+        // Small delay between sends to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100))
+        
+      } catch (error) {
+        console.error(`💥 Unexpected error processing queue item ${item.id}:`, error)
+        
+        await supabase
+          .from('campaign_queues')
+          .update({ 
+            status: 'failed',
+            error_message: error.message,
+            retry_count: item.retry_count + 1,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', item.id)
+        
+        failedCount++
+      }
+    }
+
+    // Check if any campaigns are completed
+    const { data: activeCampaigns } = await supabase
+      .from('campaigns')
+      .select('id')
+      .eq('status', 'sending')
+
+    if (activeCampaigns) {
+      for (const campaign of activeCampaigns) {
+        const { data: pendingCount } = await supabase
+          .from('campaign_queues')
+          .select('id', { count: 'exact' })
+          .eq('campaign_id', campaign.id)
+          .in('status', ['pending', 'processing'])
+
+        if (pendingCount && pendingCount.length === 0) {
+          console.log(`🏁 Campaign ${campaign.id} completed`)
+          
+          await Promise.all([
+            supabase
+              .from('campaigns')
+              .update({ 
+                status: 'completed',
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', campaign.id),
+            
+            supabase
+              .from('logs')
+              .insert({
+                campaign_id: campaign.id,
+                event_type: 'completed',
+                event_data: {
+                  completed_at: new Date().toISOString()
+                }
+              })
+          ])
+        }
+      }
+    }
+
+    console.log(`📊 Processing complete: ${sentCount} sent, ${failedCount} failed, ${processedCount} total`)
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        processed: processedCount,
+        sent: sentCount,
+        failed: failedCount
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+
+  } catch (error) {
+    console.error('💥 Campaign processor error:', error)
+    
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: error.message 
+      }),
+      { 
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      }
+    )
+  }
+})
