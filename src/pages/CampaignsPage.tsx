@@ -211,7 +211,7 @@ export function CampaignsPage() {
         .from('campaigns')
         .update({
           scheduled_at: scheduledAt.toISOString(),
-          stato: 'in_progress'
+          status: 'in_progress'
         })
         .eq('id', campaignId)
 
@@ -353,8 +353,8 @@ export function CampaignsPage() {
                 </div>
               </div>
               <div className="flex items-center space-x-2">
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(campaign.stato)}`}>
-                  {getStatusLabel(campaign.stato)}
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(campaign.status)}`}>
+                  {getStatusLabel(campaign.status)}
                 </span>
               </div>
             </div>
@@ -381,7 +381,7 @@ export function CampaignsPage() {
                 )}
               </div>
               <div className="flex items-center space-x-2">
-                {campaign.stato === 'bozza' && (
+                {campaign.status === 'bozza' && (
                   <button
                     onClick={() => handleScheduleCampaign(campaign.id)}
                     className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg font-medium hover:from-green-600 hover:to-green-700 transition-all duration-300 flex items-center space-x-2"
@@ -391,7 +391,7 @@ export function CampaignsPage() {
                   </button>
                 )}
                 
-                {campaign.stato === 'in_progress' && (
+                {campaign.status === 'in_progress' && (
                   <button className="px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-lg font-medium hover:from-orange-600 hover:to-orange-700 transition-all duration-300 flex items-center space-x-2">
                     <Pause className="h-4 w-4" />
                     <span>Pausa</span>
@@ -406,7 +406,7 @@ export function CampaignsPage() {
                   <span>Dettagli</span>
                 </button>
 
-                {campaign.stato === 'bozza' && (
+                {campaign.status === 'bozza' && (
                   <button
                     onClick={() => startEditing(campaign)}
                     className="px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg font-medium hover:from-purple-600 hover:to-purple-700 transition-all duration-300 flex items-center space-x-2"
@@ -416,7 +416,7 @@ export function CampaignsPage() {
                   </button>
                 )}
 
-                {campaign.stato === 'bozza' && (
+                {campaign.status === 'bozza' && (
                   <button
                     onClick={() => handleDeleteCampaign(campaign.id)}
                     className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg font-medium hover:from-red-600 hover:to-red-700 transition-all duration-300 flex items-center space-x-2"
@@ -776,7 +776,7 @@ export function CampaignsPage() {
               </div>
               {/* Action Buttons */}
               <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
-                {selectedCampaign.stato === 'bozza' && (
+                {selectedCampaign.status === 'bozza' && (
                   <>
                     <button
                       onClick={() => {
@@ -802,21 +802,21 @@ export function CampaignsPage() {
                   </>
                 )}
                 
-                {selectedCampaign.stato === 'in_progress' && (
+                {selectedCampaign.status === 'in_progress' && (
                   <div className="px-6 py-3 bg-orange-100 text-orange-800 rounded-xl font-medium flex items-center space-x-2">
                     <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
                     <span>Campagna in corso di invio</span>
                   </div>
                 )}
                 
-                {selectedCampaign.stato === 'completed' && (
+                {selectedCampaign.status === 'completed' && (
                   <div className="px-6 py-3 bg-green-100 text-green-800 rounded-xl font-medium flex items-center space-x-2">
                     <CheckCircle className="h-4 w-4" />
                     <span>Campagna completata</span>
                   </div>
                 )}
                 
-                {selectedCampaign.stato === 'bozza' && (
+                {selectedCampaign.status === 'bozza' && (
                   <div className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium">
                     💡 Tip: Controlla la preview prima di avviare l'invio
                   </div>
