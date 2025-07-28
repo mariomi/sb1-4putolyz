@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Plus, Search, Mail, Phone, Trash2, Upload, Users } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Search, Mail, Phone, Trash2, Upload, Users, ChevronDown } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { toast } from 'react-hot-toast'
@@ -22,17 +22,32 @@ interface Group {
 
 export function ContactsPage() {
   const { user } = useAuth()
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  
+  // Click outside handler
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setFormData(prev => ({ ...prev, showGroupDropdown: false }))
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
     email: '',
     phone: '',
-    selected_groups: [] as string[]
+    selected_group: '', // Ora è una singola stringa invece di un array
+    showGroupDropdown: false,
+    groupSearchTerm: ''
   })
 
   useEffect(() => {
@@ -80,16 +95,14 @@ export function ContactsPage() {
 
       if (error) throw error
 
-      // Add to selected groups
-      if (formData.selected_groups.length > 0) {
-        const groupAssignments = formData.selected_groups.map(groupId => ({
-          contact_id: contact.id,
-          group_id: groupId
-        }))
-
+      // Add to selected group
+      if (formData.selected_group) {
         const { error: groupError } = await supabase
           .from('contact_groups')
-          .insert(groupAssignments)
+          .insert({
+            contact_id: contact.id,
+            group_id: formData.selected_group
+          })
 
         if (groupError) throw groupError
       }
@@ -101,7 +114,9 @@ export function ContactsPage() {
         last_name: '',
         email: '',
         phone: '',
-        selected_groups: []
+        selected_group: '',
+        showGroupDropdown: false,
+        groupSearchTerm: ''
       })
       fetchData()
     } catch (error: any) {
@@ -127,6 +142,114 @@ export function ContactsPage() {
       console.error('Error deleting contact:', error)
       toast.error('Errore nell\'eliminazione del contatto')
     }
+  }
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Verifica che sia un file CSV
+    if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
+      toast.error('Per favore seleziona un file CSV')
+      return
+    }
+
+    try {
+      const reader = new FileReader()
+      reader.onload = async (e) => {
+        const text = e.target?.result as string
+        const rows = text.split('\n')
+        const headers = rows[0].split(',').map(h => h.trim().toLowerCase())
+
+        // Verifica se il CSV ha il formato nome e cognome separati o uniti
+        const hasFullName = headers.includes('nome cognome')
+        const hasSeparateNames = headers.includes('first_name') && headers.includes('last_name')
+        const hasEmail = headers.includes('email')
+        
+        if (!hasEmail || (!hasFullName && !hasSeparateNames)) {
+          toast.error('Il CSV deve contenere email e nome/cognome (separati o uniti)')
+          return
+        }
+
+        // Processa le righe del CSV
+        const contacts = rows.slice(1).filter(row => row.trim()).map(row => {
+          const values = row.split(',').map(v => v.trim())
+          const contact: any = {}
+          
+          headers.forEach((header, index) => {
+            const value = values[index]
+            if (!value) return
+
+            switch (header) {
+              case 'nome cognome':
+                // Separa nome e cognome
+                const nameParts = value.split(' ')
+                contact.first_name = nameParts[0]
+                contact.last_name = nameParts.slice(1).join(' ')
+                break
+              case 'email':
+                contact.email = value
+                break
+              case 'numero di telefono':
+                contact.phone = value
+                break
+              case 'first_name':
+                contact.first_name = value
+                break
+              case 'last_name':
+                contact.last_name = value
+                break
+              case 'phone':
+                contact.phone = value
+                break
+              default:
+                // Gestisci altri campi se necessario
+                break
+            }
+          })
+
+          // Aggiungi i campi obbligatori
+          contact.profile_id = user!.id
+          contact.is_active = true
+          contact.source = 'csv_import'
+
+          return contact
+        })
+
+        if (contacts.length === 0) {
+          toast.error('Nessun contatto valido trovato nel CSV')
+          return
+        }
+
+        // Mostra il toast di caricamento
+        const loadingToast = toast.loading(`Importazione di ${contacts.length} contatti in corso...`)
+
+        try {
+          // Inserisci i contatti in batch
+          const { error } = await supabase
+            .from('contacts')
+            .insert(contacts)
+
+          if (error) throw error
+
+          toast.success(`${contacts.length} contatti importati con successo!`)
+          fetchData() // Aggiorna la lista dei contatti
+        } catch (error: any) {
+          console.error('Error importing contacts:', error)
+          toast.error('Errore durante l\'importazione dei contatti')
+        } finally {
+          toast.dismiss(loadingToast)
+        }
+      }
+
+      reader.readAsText(file)
+    } catch (error: any) {
+      console.error('Error reading CSV:', error)
+      toast.error('Errore nella lettura del file CSV')
+    }
+
+    // Reset il campo file
+    event.target.value = ''
   }
 
   const filteredContacts = contacts.filter(contact =>
@@ -163,10 +286,16 @@ export function ContactsPage() {
           <p className="text-gray-600 mt-2">Gestisci il tuo database contatti</p>
         </div>
         <div className="flex items-center space-x-4">
-          <button className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-medium hover:from-green-600 hover:to-green-700 transition-all duration-300 flex items-center space-x-2">
+          <label className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-medium hover:from-green-600 hover:to-green-700 transition-all duration-300 flex items-center space-x-2 cursor-pointer">
             <Upload className="h-4 w-4" />
             <span>Importa CSV</span>
-          </button>
+            <input
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+          </label>
           <button
             onClick={() => setShowCreateModal(true)}
             className="btn-gradient text-white px-6 py-3 rounded-xl font-semibold flex items-center space-x-2 shadow-lg"
@@ -371,25 +500,75 @@ export function ContactsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Gruppi</label>
-                <div className="space-y-2 max-h-32 overflow-y-auto">
-                  {groups.map((group) => (
-                    <label key={group.id} className="flex items-center">
-                      <input
-                        type="checkbox"
-                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                        checked={formData.selected_groups.includes(group.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setFormData({ ...formData, selected_groups: [...formData.selected_groups, group.id] })
-                          } else {
-                            setFormData({ ...formData, selected_groups: formData.selected_groups.filter(id => id !== group.id) })
-                          }
-                        }}
-                      />
-                      <span className="ml-2 text-sm text-gray-900">{group.name}</span>
-                    </label>
-                  ))}
+                <label className="block text-sm font-medium text-gray-700 mb-2">Gruppo</label>
+                <div className="relative" ref={dropdownRef}>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-left pr-10"
+                      placeholder="Cerca o seleziona gruppo"
+                      value={formData.showGroupDropdown ? formData.groupSearchTerm : (groups.find(g => g.id === formData.selected_group)?.name || '')}
+                      onChange={(e) => {
+                        if (!formData.showGroupDropdown) {
+                          setFormData(prev => ({ ...prev, showGroupDropdown: true }))
+                        }
+                        setFormData(prev => ({ ...prev, groupSearchTerm: e.target.value }))
+                      }}
+                      onFocus={() => setFormData(prev => ({ 
+                        ...prev, 
+                        showGroupDropdown: true,
+                        groupSearchTerm: ''
+                      }))}
+                    />
+                    <ChevronDown 
+                      className={`absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 transition-transform ${formData.showGroupDropdown ? 'transform rotate-180' : ''}`}
+                      onClick={() => setFormData(prev => ({ ...prev, showGroupDropdown: !prev.showGroupDropdown }))}
+                    />
+                  </div>
+                  
+                  {formData.showGroupDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg">
+                      <div className="p-2">
+                        <div className="max-h-40 overflow-y-auto">
+                          {groups
+                            .filter(group => 
+                              group.name.toLowerCase().includes(formData.groupSearchTerm.toLowerCase())
+                            )
+                            .map((group) => (
+                              <div
+                                key={group.id}
+                                className={`px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                                  formData.selected_group === group.id
+                                    ? 'bg-indigo-50 text-indigo-900'
+                                    : 'hover:bg-gray-50'
+                                }`}
+                                onClick={() => {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    selected_group: prev.selected_group === group.id ? '' : group.id,
+                                    showGroupDropdown: false,
+                                    groupSearchTerm: ''
+                                  }))
+                                }}
+                              >
+                                <div className="flex items-center">
+                                  <div className={`w-4 h-4 border rounded-full mr-3 flex items-center justify-center ${
+                                    formData.selected_group === group.id
+                                      ? 'bg-indigo-600 border-indigo-600'
+                                      : 'border-gray-300'
+                                  }`}>
+                                    {formData.selected_group === group.id && (
+                                      <div className="w-2 h-2 rounded-full bg-white"></div>
+                                    )}
+                                  </div>
+                                  <span className="text-sm">{group.name}</span>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

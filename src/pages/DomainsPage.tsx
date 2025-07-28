@@ -128,25 +128,26 @@ export function DomainsPage() {
       
       // Carica i domini precedentemente sincronizzati dal localStorage
       const previouslySyncedDomains = JSON.parse(localStorage.getItem('resendDomains') || '[]')
-      const previousDomainIds = new Set(previouslySyncedDomains.map((d: ResendDomain) => d.id))
       
-      // Se tutti i domini erano già stati sincronizzati prima, mostra "Tutto aggiornato"
-      const allDomainsWerePreviouslySynced = incomingDomains.every(d => previousDomainIds.has(d.id))
+      // Confronta i domini per vedere se ci sono cambiamenti reali
+      const hasChanges = JSON.stringify(incomingDomains.map(d => ({ id: d.id, status: d.status }))) !==
+                        JSON.stringify(previouslySyncedDomains.map(d => ({ id: d.id, status: d.status })))
       
-      // Aggiorna lo stato e il localStorage
-      setResendDomains(incomingDomains)
-      localStorage.setItem('resendDomains', JSON.stringify(incomingDomains))
+      if (hasChanges) {
+        // Aggiorna lo stato e il localStorage solo se ci sono cambiamenti
+        setResendDomains(incomingDomains)
+        localStorage.setItem('resendDomains', JSON.stringify(incomingDomains))
 
-      // Mostra il messaggio appropriato
-      if (allDomainsWerePreviouslySynced) {
-        toast.success('Tutto aggiornato')
-      } else {
+        // Calcola i nuovi domini
+        const previousDomainIds = new Set(previouslySyncedDomains.map((d: ResendDomain) => d.id))
         const newDomains = incomingDomains.filter(d => !previousDomainIds.has(d.id))
-        toast.success(`Sync completato: ${newDomains.length} nuovi domini`)
+        
+        if (newDomains.length > 0) {
+          toast.success(`Sync completato: ${newDomains.length} nuovi domini`)
+          // Refresh local domains solo se ci sono nuovi domini
+          await fetchDomains()
+        }
       }
-      
-      // Aggiorna i domini locali
-      await fetchDomains()
     } catch (error: any) {
       console.error('Error syncing domains:', error)
       toast.error('Errore nella sincronizzazione con Resend')
