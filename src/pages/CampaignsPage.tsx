@@ -238,6 +238,49 @@ export function CampaignsPage() {
     }
   }
 
+  const handleStartCampaignNow = async (campaignId: string) => {
+    const campaign = campaigns.find(c => c.id === campaignId)
+    if (!campaign) return
+
+    try {
+      // Select groups and senders, defaulting to first available if none chosen
+      const selectedGroups = formData.selected_groups.length > 0 ? formData.selected_groups : groups.slice(0, 1).map(g => g.id)
+      const selectedSenders = formData.selected_senders.length > 0 ? formData.selected_senders : senders.slice(0, 1).map(s => s.id)
+
+      // Set schedule to now
+      const scheduledAt = new Date()
+
+      const { error: updateError } = await supabase
+        .from('campaigns')
+        .update({
+          scheduled_at: scheduledAt.toISOString(),
+          status: 'in_progress'
+        })
+        .eq('id', campaignId)
+
+      if (updateError) throw updateError
+
+      // Generate the campaign queue
+      const { data, error: rpcError } = await supabase.rpc(
+        'generate_campaign_queue',
+        {
+          p_campaign_id: campaignId,
+          p_group_ids: selectedGroups,
+          p_sender_ids: selectedSenders
+        }
+      )
+
+      if (rpcError) throw rpcError
+
+      console.log('Queue generation result:', data)
+      toast.success(`Campagna avviata! ${data.queue_entries} email in coda`)
+      fetchData()
+    } catch (error: any) {
+      console.error('Error starting campaign:', error)
+      toast.error('Errore nell\'avvio della campagna')
+    }
+  }
+
   const handleDeleteCampaign = async (campaignId: string) => {
     if (!confirm('Sei sicuro di voler eliminare questa campagna?')) return
 
@@ -382,13 +425,23 @@ export function CampaignsPage() {
               </div>
               <div className="flex items-center space-x-2">
                 {campaign.status === 'bozza' && (
-                  <button
-                    onClick={() => handleScheduleCampaign(campaign.id)}
-                    className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg font-medium hover:from-green-600 hover:to-green-700 transition-all duration-300 flex items-center space-x-2"
-                  >
-                    <Play className="h-4 w-4" />
-                    <span>Avvia</span>
-                  </button>
+                  <>
+                    <button
+                      onClick={() => handleStartCampaignNow(campaign.id)}
+                      className="px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg font-medium hover:from-green-700 hover:to-green-800 transition-all duration-300 flex items-center space-x-2"
+                    >
+                      <Play className="h-4 w-4" />
+                      <span>Avvia Ora</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleScheduleCampaign(campaign.id)}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-medium hover:from-blue-600 hover:to-blue-700 transition-all duration-300 flex items-center space-x-2"
+                    >
+                      <Calendar className="h-4 w-4" />
+                      <span>Programma</span>
+                    </button>
+                  </>
                 )}
                 
                 {campaign.status === 'in_progress' && (
@@ -781,12 +834,23 @@ export function CampaignsPage() {
                     <button
                       onClick={() => {
                         setShowDetailsModal(false)
-                        handleScheduleCampaign(selectedCampaign.id)
+                        handleStartCampaignNow(selectedCampaign.id)
                       }}
-                      className="px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-medium hover:from-green-600 hover:to-green-700 transition-all duration-300 flex items-center space-x-2 shadow-lg"
+                      className="px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl font-medium hover:from-green-700 hover:to-green-800 transition-all duration-300 flex items-center space-x-2 shadow-lg"
                     >
                       <Play className="h-4 w-4" />
-                      <span>Avvia Invio Immediato</span>
+                      <span>Avvia Ora</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setShowDetailsModal(false)
+                        handleScheduleCampaign(selectedCampaign.id)
+                      }}
+                      className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-medium hover:from-blue-600 hover:to-blue-700 transition-all duration-300 flex items-center space-x-2 shadow-lg"
+                    >
+                      <Calendar className="h-4 w-4" />
+                      <span>Programma</span>
                     </button>
                     
                     <button
