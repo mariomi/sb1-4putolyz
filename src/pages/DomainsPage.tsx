@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Plus, Globe, CheckCircle, XCircle, AlertCircle, RefreshCw, ExternalLink, Copy } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -44,19 +44,41 @@ interface SyncResult {
 export function DomainsPage() {
   const { user } = useAuth()
   const [domains, setDomains] = useState<Domain[]>([])
-  const [resendDomains, setResendDomains] = useState<ResendDomain[]>([])
+  const [resendDomains, setResendDomains] = useState<ResendDomain[]>(() => {
+    try {
+      const cached = localStorage.getItem('resendDomains')
+      return cached ? JSON.parse(cached) : []
+    } catch {
+      return []
+    }
+  })
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [syncInProgress, setSyncInProgress] = useState<boolean>(false)
+  const hasSyncedThisSession = useRef<boolean>(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null)
   const [formData, setFormData] = useState({
     domain_name: ''
   })
 
+
+  // Ref per tracciare se il sync è in corso
+  const syncStarted = useRef<boolean>(false)
+
   useEffect(() => {
-    if (user) {
-      fetchDomains()
+    const doSync = async () => {
+      if (user && !hasSyncedThisSession.current && !syncStarted.current) {
+        console.log('🔄 Starting initial sync...')
+        syncStarted.current = true
+        hasSyncedThisSession.current = true
+        
+        await fetchDomains()
+        await syncWithResend()
+      }
     }
+
+    doSync()
   }, [user])
 
   const fetchDomains = async () => {
@@ -78,10 +100,15 @@ export function DomainsPage() {
   }
 
   const syncWithResend = async () => {
+    // Previeni sync multipli
+    if (syncInProgress || syncing) {
+      return
+    }
+
     setSyncing(true)
+    setSyncInProgress(true)
+    
     try {
-      console.log('🔄 Syncing domains with Resend...')
-      
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-resend-domains`, {
         method: 'POST',
         headers: {
@@ -97,21 +124,35 @@ export function DomainsPage() {
       }
 
       const syncData: SyncResult = result.data
-      setResendDomains(syncData.resend_domains)
+      const incomingDomains = syncData.resend_domains || []
       
-      // Show sync results
-      const updatedCount = syncData.sync_actions.filter(a => a.action === 'updated').length
-      const newCount = syncData.sync_actions.filter(a => a.action === 'found_new').length
+      // Carica i domini precedentemente sincronizzati dal localStorage
+      const previouslySyncedDomains = JSON.parse(localStorage.getItem('resendDomains') || '[]')
+      const previousDomainIds = new Set(previouslySyncedDomains.map((d: ResendDomain) => d.id))
       
-      toast.success(`Sync completato: ${updatedCount} domini aggiornati, ${newCount} nuovi domini trovati`)
+      // Se tutti i domini erano già stati sincronizzati prima, mostra "Tutto aggiornato"
+      const allDomainsWerePreviouslySynced = incomingDomains.every(d => previousDomainIds.has(d.id))
       
-      // Refresh local domains
+      // Aggiorna lo stato e il localStorage
+      setResendDomains(incomingDomains)
+      localStorage.setItem('resendDomains', JSON.stringify(incomingDomains))
+
+      // Mostra il messaggio appropriato
+      if (allDomainsWerePreviouslySynced) {
+        toast.success('Tutto aggiornato')
+      } else {
+        const newDomains = incomingDomains.filter(d => !previousDomainIds.has(d.id))
+        toast.success(`Sync completato: ${newDomains.length} nuovi domini`)
+      }
+      
+      // Aggiorna i domini locali
       await fetchDomains()
     } catch (error: any) {
       console.error('Error syncing domains:', error)
       toast.error('Errore nella sincronizzazione con Resend')
     } finally {
       setSyncing(false)
+      setSyncInProgress(false)
     }
   }
 
@@ -200,14 +241,6 @@ export function DomainsPage() {
         </div>
         <div className="flex items-center space-x-4">
           <button
-            onClick={syncWithResend}
-            disabled={syncing}
-            className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-medium hover:from-blue-600 hover:to-blue-700 transition-all duration-300 flex items-center space-x-2 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-            <span>{syncing ? 'Sincronizzando...' : 'Sync Resend'}</span>
-          </button>
-          <button
             onClick={() => setShowCreateModal(true)}
             className="btn-gradient text-white px-6 py-3 rounded-xl font-semibold flex items-center space-x-2 shadow-lg"
           >
@@ -218,12 +251,15 @@ export function DomainsPage() {
       </div>
 
       {/* Resend Domains Section */}
-      {resendDomains.length > 0 && (
-        <div className="bg-white/80 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-gray-200/50">
-          <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
+      <div className="bg-white/80 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-gray-200/50">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold text-gray-900 flex items-center">
             <ExternalLink className="h-6 w-6 mr-3 text-blue-600" />
             Domini su Resend
           </h3>
+
+        </div>
+        {resendDomains.length > 0 ? (
           <div className="grid gap-4">
             {resendDomains.map((domain) => (
               <div key={domain.id} className="flex items-center justify-between p-4 bg-blue-50 rounded-xl border border-blue-100">
@@ -243,8 +279,14 @@ export function DomainsPage() {
               </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="text-center py-8">
+            <Globe className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-600">Nessun dominio trovato su Resend</p>
+            <p className="text-sm text-gray-500 mt-1">La sincronizzazione avviene automaticamente</p>
+          </div>
+        )}
+      </div>
 
       {/* Local Domains Grid */}
       <div className="grid gap-6">

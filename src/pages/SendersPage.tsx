@@ -31,7 +31,11 @@ interface ResendDomain {
 export function SendersPage() {
   const { user } = useAuth()
   const [senders, setSenders] = useState<Sender[]>([])
-  const [resendDomains, setResendDomains] = useState<ResendDomain[]>([])
+  const [resendDomains, setResendDomains] = useState<ResendDomain[]>(() => {
+    // Carica i dati dal localStorage se disponibili
+    const cached = localStorage.getItem('resendDomains')
+    return cached ? JSON.parse(cached) : []
+  })
   const [loading, setLoading] = useState(true)
   const [loadingDomains, setLoadingDomains] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -50,10 +54,11 @@ export function SendersPage() {
   }, [user])
 
   useEffect(() => {
-    if (showCreateModal || editingSender) {
+    if ((showCreateModal || editingSender) && resendDomains.length === 0) {
+      // Chiama fetchResendDomains solo se non ci sono già domini caricati
       fetchResendDomains()
     }
-  }, [showCreateModal, editingSender])
+  }, [showCreateModal, editingSender, resendDomains.length])
 
   const fetchSenders = async () => {
     setLoading(true)
@@ -74,6 +79,17 @@ export function SendersPage() {
   }
 
   const fetchResendDomains = async () => {
+    // Controlla se è passato abbastanza tempo dall'ultimo sync
+    const lastSyncTime = parseInt(localStorage.getItem('lastSyncTime') || '0')
+    const now = Date.now()
+    const timeSinceLastSync = now - lastSyncTime
+    const minInterval = 30000 // 30 secondi
+
+    if (timeSinceLastSync < minInterval) {
+      console.log('🔄 Skipping Resend domains fetch - rate limit')
+      return
+    }
+
     setLoadingDomains(true)
     try {
       console.log('🔄 Fetching Resend domains...')
@@ -92,7 +108,12 @@ export function SendersPage() {
         throw new Error(result.error || 'Failed to fetch domains')
       }
 
-      setResendDomains(result.data.resend_domains || [])
+      const newResendDomains = result.data.resend_domains || []
+      setResendDomains(newResendDomains)
+      
+      // Salva i dati nel localStorage per persistenza
+      localStorage.setItem('resendDomains', JSON.stringify(newResendDomains))
+      localStorage.setItem('lastSyncTime', Date.now().toString())
     } catch (error: any) {
       console.error('Error fetching Resend domains:', error)
       toast.error('Errore nel caricamento dei domini Resend')
