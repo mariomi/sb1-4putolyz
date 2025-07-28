@@ -13,7 +13,8 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 
 function App() {
   return (
-    <Router basename="/sb1-4putolyz-main">
+    //<Router basename="/sb1-4putolyz-main">
+    <Router>
       <div className="min-h-screen bg-gray-50">
         <Toaster
           position="top-right"
