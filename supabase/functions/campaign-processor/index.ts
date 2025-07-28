@@ -13,10 +13,16 @@ interface QueueItem {
   contact_id: string
   sender_id: string
   scheduled_for: string
+  status: string
+  retry_count: number
+  sent_at: string | null
+  resend_email_id: string | null
+  error_message: string | null
   contact: {
     email: string
     first_name: string
     last_name: string
+    is_active: boolean
   }
   sender: {
     email_from: string
@@ -24,11 +30,15 @@ interface QueueItem {
     domain: string
     daily_limit: number
     emails_sent_today: number
+    current_day: number
+    last_sent_at: string | null
   }
   campaign: {
     name: string
     subject: string
     html_content: string
+    start_time_of_day: string
+    send_duration_hours: number
   }
 }
 
@@ -53,15 +63,17 @@ Deno.serve(async (req: Request) => {
       .from('campaign_queues')
       .select(`
         *,
-        contact:contacts!inner(email, first_name, last_name),
-        sender:senders!inner(email_from, display_name, domain, daily_limit, emails_sent_today, current_day, is_active),
-        campaign:campaigns!inner(name, subject, html_content, status)
+        contact:contacts!inner(email, first_name, last_name, is_active),
+        sender:senders!inner(email_from, display_name, domain, daily_limit, emails_sent_today, current_day, last_sent_at, is_active),
+        campaign:campaigns!inner(name, subject, html_content, status, start_time_of_day, send_duration_hours)
       `)
       .eq('status', 'pending')
       .lte('scheduled_for', now)
+      .eq('contact.is_active', true)
       .eq('sender.is_active', true)
       .eq('campaign.status', 'sending')
       .limit(50)
+      .order('scheduled_for', { ascending: true })
 
     if (queueError) {
       console.error('❌ Error fetching queue items:', queueError)
@@ -88,9 +100,39 @@ Deno.serve(async (req: Request) => {
     // Process each queue item
     for (const item of queueItems as QueueItem[]) {
       try {
+        const nowDate = new Date()
+
+        // Reset daily counters if a new day started
+        const startOfToday = new Date(nowDate)
+        startOfToday.setUTCHours(0, 0, 0, 0)
+        if (!item.sender.last_sent_at || new Date(item.sender.last_sent_at) < startOfToday) {
+          await supabase
+            .from('senders')
+            .update({
+              emails_sent_today: 0,
+              current_day: item.sender.current_day + 1,
+              updated_at: nowDate.toISOString(),
+            })
+            .eq('id', item.sender_id)
+
+          item.sender.emails_sent_today = 0
+          item.sender.current_day = item.sender.current_day + 1
+        }
+
         // Check if sender has reached daily limit
         if (item.sender.emails_sent_today >= item.sender.daily_limit) {
           console.log(`⏸️ Sender ${item.sender.email_from} has reached daily limit`)
+          continue
+        }
+
+        // Ensure we are within campaign sending window
+        const [h, m] = item.campaign.start_time_of_day.split(':').map(Number)
+        const campaignStart = new Date(nowDate)
+        campaignStart.setUTCHours(h, m, 0, 0)
+        const campaignEnd = new Date(campaignStart.getTime() + item.campaign.send_duration_hours * 60 * 60 * 1000)
+
+        if (nowDate < campaignStart || nowDate > campaignEnd) {
+          console.log(`⏰ Outside sending window for campaign ${item.campaign_id}`)
           continue
         }
 
@@ -119,19 +161,28 @@ Deno.serve(async (req: Request) => {
 
         if (emailError) {
           console.error(`❌ Failed to send email to ${item.contact.email}:`, emailError)
-          
+
           // Mark as failed and log error
           await Promise.all([
             supabase
               .from('campaign_queues')
-              .update({ 
+              .update({
                 status: 'failed',
                 error_message: emailError.message,
                 retry_count: item.retry_count + 1,
                 updated_at: new Date().toISOString()
               })
               .eq('id', item.id),
-            
+
+            supabase
+              .from('senders')
+              .update({
+                emails_sent_today: item.sender.emails_sent_today + 1,
+                last_sent_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', item.sender_id),
+
             supabase
               .from('logs')
               .insert({
@@ -147,7 +198,9 @@ Deno.serve(async (req: Request) => {
                 }
               })
           ])
-          
+
+          item.sender.emails_sent_today += 1
+          item.sender.last_sent_at = new Date().toISOString()
           failedCount++
         } else {
           console.log(`✅ Email sent successfully to ${item.contact.email}, ID: ${emailResult.id}`)
