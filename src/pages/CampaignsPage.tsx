@@ -498,10 +498,11 @@ export function CampaignsPage() {
                   </button>
                 )}
 
+                {/* Aggiunta di un bottone per eliminare le campagne */}
                 {campaign.status === 'bozza' && (
                   <button
                     onClick={() => handleDeleteCampaign(campaign.id)}
-                    className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg font-medium hover:from-red-600 hover:to-red-700 transition-all duration-300 flex items-center space-x-2"
+                    className="px-4 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-all duration-300 flex items-center space-x-2"
                   >
                     <Trash2 className="h-4 w-4" />
                     <span>Elimina</span>
