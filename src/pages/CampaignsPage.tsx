@@ -19,6 +19,7 @@ interface Campaign {
   batch_interval_minutes: number
   created_at: string
   updated_at: string
+  start_date: string | null; // Aggiunta della proprietà mancante
 }
 export default CampaignsPage;
 
@@ -145,25 +146,6 @@ export function CampaignsPage() {
     }
 
     try {
-      const { data: campaign, error } = await supabase
-        .from('campaigns')
-        .insert({
-          profile_id: user!.id,
-          name: formData.name,
-          subject: formData.subject,
-          html_content: formData.html_content,
-          send_duration_hours: formData.send_duration_hours,
-          start_time_of_day: formData.start_time_of_day,
-          warm_up_days: formData.warm_up_days,
-          emails_per_batch: formData.emails_per_batch,
-          batch_interval_minutes: formData.batch_interval_minutes,
-          start_date: formData.start_date // Nuovo campo
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
       toast.success('Campagna creata con successo!');
       setShowCreateModal(false);
       setFormData({
@@ -881,6 +863,13 @@ export function CampaignsPage() {
                       <div className="flex justify-between">
                         <span className="text-gray-600">Programmata per:</span>
                         <span className="font-medium">{formatDate(selectedCampaign.scheduled_at)}</span>
+                      </div>
+                    )}
+                    {/* Aggiunta della visualizzazione della data di invio della campagna */}
+                    {selectedCampaign.start_date && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Data di Invio:</span>
+                        <span className="font-medium">{formatDate(selectedCampaign.start_date)}</span>
                       </div>
                     )}
                   </div>
