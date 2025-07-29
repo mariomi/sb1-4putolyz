@@ -61,7 +61,14 @@ export function CampaignsPage() {
 
   useEffect(() => {
     if (user) {
-      fetchData()
+      fetchData();
+
+      // Start interval to check for campaigns to update
+      const interval = setInterval(() => {
+        checkAndStartCampaigns();
+      }, 60000); // Check every 60 seconds
+
+      return () => clearInterval(interval); // Cleanup on unmount
     }
   }, [user])
 
@@ -88,6 +95,47 @@ export function CampaignsPage() {
       setLoading(false)
     }
   }
+
+  const checkAndStartCampaigns = async () => {
+    try {
+      const now = new Date().toISOString();
+
+      // Fetch campaigns that are in "draft" and scheduled to start
+      const { data: campaignsToStart, error } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('status', 'bozza')
+        .lte('scheduled_at', now);
+
+      if (error) throw error;
+
+      if (campaignsToStart && campaignsToStart.length > 0) {
+        for (const campaign of campaignsToStart) {
+          // Update the status to "in_progress"
+          const { error: updateError } = await supabase
+            .from('campaigns')
+            .update({ status: 'in_progress' })
+            .eq('id', campaign.id);
+
+          if (updateError) throw updateError;
+
+          // Optionally, trigger the queue generation or other processes
+          await supabase.rpc('generate_campaign_queue', {
+            p_campaign_id: campaign.id,
+            p_group_ids: formData.selected_groups,
+            p_sender_ids: formData.selected_senders,
+          });
+
+          console.log(`Campaign ${campaign.id} started.`);
+        }
+
+        // Refresh the campaigns list
+        fetchData();
+      }
+    } catch (error: any) {
+      console.error('Error checking and starting campaigns:', error);
+    }
+  };
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault()
