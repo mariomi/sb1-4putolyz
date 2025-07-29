@@ -20,6 +20,7 @@ interface Campaign {
   created_at: string
   updated_at: string
 }
+export default CampaignsPage;
 
 interface Group {
   id: string
@@ -56,7 +57,8 @@ export function CampaignsPage() {
     emails_per_batch: 50,
     batch_interval_minutes: 15,
     selected_groups: [] as string[],
-    selected_senders: [] as string[]
+    selected_senders: [] as string[],
+    start_date: '' // Nuovo campo per la data di inizio
   })
 
   useEffect(() => {
@@ -100,18 +102,18 @@ export function CampaignsPage() {
     try {
       const now = new Date().toISOString();
 
-      // Fetch campaigns that are in "draft" and scheduled to start
+      // Fetch campaigns that are in "draft", scheduled to start, and have a valid start_date
       const { data: campaignsToStart, error } = await supabase
         .from('campaigns')
         .select('*')
         .eq('status', 'bozza')
-        .lte('scheduled_at', now);
+        .lte('scheduled_at', now)
+        .lte('start_date', now); // Controlla anche la data di inizio
 
       if (error) throw error;
 
       if (campaignsToStart && campaignsToStart.length > 0) {
         for (const campaign of campaignsToStart) {
-          // Update the status to "in_progress"
           const { error: updateError } = await supabase
             .from('campaigns')
             .update({ status: 'in_progress' })
@@ -119,17 +121,9 @@ export function CampaignsPage() {
 
           if (updateError) throw updateError;
 
-          // Optionally, trigger the queue generation or other processes
-          await supabase.rpc('generate_campaign_queue', {
-            p_campaign_id: campaign.id,
-            p_group_ids: formData.selected_groups,
-            p_sender_ids: formData.selected_senders,
-          });
-
           console.log(`Campaign ${campaign.id} started.`);
         }
 
-        // Refresh the campaigns list
         fetchData();
       }
     } catch (error: any) {
@@ -138,21 +132,16 @@ export function CampaignsPage() {
   };
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
+    e.preventDefault();
+
     if (!formData.name || !formData.subject) {
-      toast.error('Nome e oggetto sono obbligatori')
-      return
+      toast.error('Nome e oggetto sono obbligatori');
+      return;
     }
 
-    if (formData.selected_groups.length === 0) {
-      toast.error('Seleziona almeno un gruppo di destinatari')
-      return
-    }
-
-    if (formData.selected_senders.length === 0) {
-      toast.error('Seleziona almeno un mittente')
-      return
+    if (!formData.start_date) {
+      toast.error('La data di inizio è obbligatoria');
+      return;
     }
 
     try {
@@ -167,15 +156,16 @@ export function CampaignsPage() {
           start_time_of_day: formData.start_time_of_day,
           warm_up_days: formData.warm_up_days,
           emails_per_batch: formData.emails_per_batch,
-          batch_interval_minutes: formData.batch_interval_minutes
+          batch_interval_minutes: formData.batch_interval_minutes,
+          start_date: formData.start_date // Nuovo campo
         })
         .select()
-        .single()
+        .single();
 
-      if (error) throw error
+      if (error) throw error;
 
-      toast.success('Campagna creata con successo!')
-      setShowCreateModal(false)
+      toast.success('Campagna creata con successo!');
+      setShowCreateModal(false);
       setFormData({
         name: '',
         subject: '',
@@ -186,22 +176,28 @@ export function CampaignsPage() {
         emails_per_batch: 50,
         batch_interval_minutes: 15,
         selected_groups: [],
-        selected_senders: []
-      })
-      fetchData()
+        selected_senders: [],
+        start_date: '' // Reset del campo
+      });
+      fetchData();
     } catch (error: any) {
-      console.error('Error creating campaign:', error)
-      toast.error('Errore nella creazione della campagna')
+      console.error('Error creating campaign:', error);
+      toast.error('Errore nella creazione della campagna');
     }
   }
 
   const handleUpdateCampaign = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!editingCampaign) return
-    
+    e.preventDefault();
+    if (!editingCampaign) return;
+
     if (!formData.name || !formData.subject) {
-      toast.error('Nome e oggetto sono obbligatori')
-      return
+      toast.error('Nome e oggetto sono obbligatori');
+      return;
+    }
+
+    if (!formData.start_date) {
+      toast.error('La data di inizio è obbligatoria');
+      return;
     }
 
     try {
@@ -215,14 +211,15 @@ export function CampaignsPage() {
           start_time_of_day: formData.start_time_of_day,
           warm_up_days: formData.warm_up_days,
           emails_per_batch: formData.emails_per_batch,
-          batch_interval_minutes: formData.batch_interval_minutes
+          batch_interval_minutes: formData.batch_interval_minutes,
+          start_date: formData.start_date // Nuovo campo
         })
-        .eq('id', editingCampaign.id)
+        .eq('id', editingCampaign.id);
 
-      if (error) throw error
+      if (error) throw error;
 
-      toast.success('Campagna aggiornata con successo!')
-      setEditingCampaign(null)
+      toast.success('Campagna aggiornata con successo!');
+      setEditingCampaign(null);
       setFormData({
         name: '',
         subject: '',
@@ -233,12 +230,13 @@ export function CampaignsPage() {
         emails_per_batch: 50,
         batch_interval_minutes: 15,
         selected_groups: [],
-        selected_senders: []
-      })
-      fetchData()
+        selected_senders: [],
+        start_date: '' // Reset del campo
+      });
+      fetchData();
     } catch (error: any) {
-      console.error('Error updating campaign:', error)
-      toast.error('Errore nell\'aggiornamento della campagna')
+      console.error('Error updating campaign:', error);
+      toast.error('Errore nell\'aggiornamento della campagna');
     }
   }
 
@@ -349,7 +347,7 @@ export function CampaignsPage() {
   }
 
   const startEditing = (campaign: Campaign) => {
-    setEditingCampaign(campaign)
+    setEditingCampaign(campaign);
     setFormData({
       name: campaign.name,
       subject: campaign.subject,
@@ -359,8 +357,9 @@ export function CampaignsPage() {
       warm_up_days: campaign.warm_up_days,
       emails_per_batch: campaign.emails_per_batch,
       batch_interval_minutes: campaign.batch_interval_minutes,
-      selected_groups: [],
-      selected_senders: []
+      selected_groups: [], // Ensure this is initialized
+      selected_senders: [], // Ensure this is initialized
+      start_date: campaign.scheduled_at || '' // Ensure start_date is set
     })
   }
 
@@ -705,6 +704,17 @@ export function CampaignsPage() {
                 </p>
               </div>
 
+              {/* Start Date Field */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Data di Inizio</label>
+                <input
+                  type="date"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  value={formData.start_date || ''}
+                  onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                />
+              </div>
+
               <div className="flex items-center justify-end space-x-4">
                 <button
                   type="button"
@@ -721,7 +731,8 @@ export function CampaignsPage() {
                       emails_per_batch: 50,
                       batch_interval_minutes: 15,
                       selected_groups: [],
-                      selected_senders: []
+                      selected_senders: [],
+                      start_date: '' // Aggiunta della proprietà mancante
                     })
                   }}
                   className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
@@ -874,7 +885,6 @@ export function CampaignsPage() {
                     )}
                   </div>
                 </div>
-                </div>
                 <div>
                   <h4 className="text-lg font-semibold text-gray-900 mb-3">Configurazione Avanzata</h4>
                   <div className="space-y-2">
@@ -949,20 +959,11 @@ export function CampaignsPage() {
                 
                 {selectedCampaign.status === 'bozza' && (
                   <div className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium">
-                    💡 Tip: Controlla la preview prima di avviare l'invio
+                    <span>Questa campagna è ancora in bozza.</span>
                   </div>
                 )}
-                
-                <button
-                  onClick={() => {
-                    setShowDetailsModal(false)
-                    setSelectedCampaign(null)
-                  }}
-                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
-                >
-                  Chiudi
-                </button>
               </div>
+            </div>
           </div>
         </div>
       )}
