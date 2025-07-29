@@ -502,11 +502,10 @@ export function CampaignsPage() {
       {(showCreateModal || editingCampaign) && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-2xl p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">
-              {editingCampaign ? 'Modifica Campagna' : 'Nuova Campagna'}
+            <h2 className="text-2xl font-bold mb-6">
+              {editingCampaign ? 'Modifica Campagna' : 'Crea Nuova Campagna'}
             </h2>
-            
-            <form onSubmit={editingCampaign ? handleUpdateCampaign : handleCreateCampaign} className="space-y-6">
+            <form onSubmit={editingCampaign ? handleUpdateCampaign : handleCreateCampaign}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Nome Campagna</label>
@@ -636,6 +635,26 @@ export function CampaignsPage() {
                     ))}
                   </div>
                 </div>
+              </div>
+
+              {/* Warm-Up Days Field */}
+              <div className="mb-4">
+                <label htmlFor="warm_up_days" className="block text-sm font-medium text-gray-700">
+                  Giorni di Warm-Up
+                </label>
+                <input
+                  type="number"
+                  id="warm_up_days"
+                  name="warm_up_days"
+                  value={formData.warm_up_days}
+                  onChange={(e) => setFormData({ ...formData, warm_up_days: parseInt(e.target.value, 10) })}
+                  min={1}
+                  max={30}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  Seleziona il numero di giorni per inviare gradualmente le email.
+                </p>
               </div>
 
               <div className="flex items-center justify-end space-x-4">
