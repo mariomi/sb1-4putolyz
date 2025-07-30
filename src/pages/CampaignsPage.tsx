@@ -20,7 +20,7 @@ interface Campaign {
   created_at: string
   updated_at: string
   start_date: string | null
-  profile_id?: string // aggiungi opzionale
+  profile_id: string
 }
 
 interface Group {
@@ -74,9 +74,19 @@ export function CampaignsPage() {
     setLoading(true)
     try {
       const [campaignsRes, groupsRes, sendersRes] = await Promise.all([
-        supabase.from('campaigns').select('*').order('created_at', { ascending: false }),
-        supabase.from('groups').select('*').order('name'),
-        supabase.from('senders').select('*').eq('is_active', true).order('domain')
+        supabase.from('campaigns')
+          .select('*')
+          .eq('profile_id', user?.id)
+          .order('created_at', { ascending: false }),
+        supabase.from('groups')
+          .select('*')
+          .eq('profile_id', user?.id)
+          .order('name'),
+        supabase.from('senders')
+          .select('*')
+          .eq('profile_id', user?.id)
+          .eq('is_active', true)
+          .order('domain')
       ])
       if (campaignsRes.error) throw campaignsRes.error
       if (groupsRes.error) throw groupsRes.error
@@ -100,36 +110,59 @@ export function CampaignsPage() {
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formData.name || !formData.subject || !formData.start_date) {
+    
+    // Validazione input
+    if (!formData.name?.trim() || !formData.subject?.trim() || !formData.start_date) {
       toast.error('Nome, oggetto e data di inizio sono obbligatori')
       return
     }
 
-    // Usa profile_id per associare la campagna all'utente
+    if (formData.selected_groups.length === 0) {
+      toast.error('Seleziona almeno un gruppo di destinatari')
+      return
+    }
+
+    if (formData.selected_senders.length === 0) {
+      toast.error('Seleziona almeno un mittente')
+      return
+    }
+
+    const startDate = new Date(formData.start_date)
+    if (startDate < new Date()) {
+      toast.error('La data di inizio deve essere futura')
+      return
+    }
+
     const campaignData = {
-      name: formData.name,
-      subject: formData.subject,
+      name: formData.name.trim(),
+      subject: formData.subject.trim(),
       html_content: formData.html_content,
-      status: 'bozza',
+      status: 'bozza' as const,
       scheduled_at: null,
-      send_duration_hours: formData.send_duration_hours,
+      send_duration_hours: handleNumericInput(String(formData.send_duration_hours), 1, 72, 1),
       start_time_of_day: formData.start_time_of_day,
-      warm_up_days: formData.warm_up_days,
-      emails_per_batch: formData.emails_per_batch,
-      batch_interval_minutes: formData.batch_interval_minutes,
+      warm_up_days: handleNumericInput(String(formData.warm_up_days), 1, 30, 3),
+      emails_per_batch: handleNumericInput(String(formData.emails_per_batch), 10, 500, 50),
+      batch_interval_minutes: handleNumericInput(String(formData.batch_interval_minutes), 1, 60, 15),
       start_date: formData.start_date,
-      profile_id: user?.id // usa profile_id, non user_id
+      profile_id: user?.id
     }
 
     try {
+      if (!user?.id) throw new Error('Utente non autenticato')
+
       if (editingCampaign) {
         const { data: updatedCampaign, error } = await supabase
           .from('campaigns')
           .update(campaignData)
           .eq('id', editingCampaign.id)
+          .eq('profile_id', user.id) // Sicurezza aggiuntiva
           .select()
           .single()
+        
         if (error) throw error
+        if (!updatedCampaign) throw new Error('Campagna non trovata')
+        
         await updateCampaignRelations(updatedCampaign.id)
         toast.success('Campagna aggiornata con successo!')
       } else {
@@ -138,15 +171,19 @@ export function CampaignsPage() {
           .insert(campaignData)
           .select()
           .single()
+
         if (error) throw error
+        if (!newCampaign) throw new Error('Errore nella creazione della campagna')
+
         await updateCampaignRelations(newCampaign.id)
         toast.success('Campagna creata con successo!')
       }
+
       resetForm()
       fetchData()
     } catch (error: any) {
       console.error('Error saving campaign:', error)
-      toast.error('Errore nel salvataggio della campagna')
+      toast.error(error.message || 'Errore nel salvataggio della campagna')
     }
   }
 
@@ -174,9 +211,12 @@ export function CampaignsPage() {
   }
 
   const handleScheduleCampaign = async (campaignId: string) => {
-    const scheduledAt = new Date()
-    scheduledAt.setMinutes(scheduledAt.getMinutes() + 1)
     try {
+      if (!user?.id) throw new Error('Utente non autenticato')
+
+      const scheduledAt = new Date()
+      scheduledAt.setMinutes(scheduledAt.getMinutes() + 1)
+
       const { error } = await supabase
         .from('campaigns')
         .update({
@@ -184,27 +224,43 @@ export function CampaignsPage() {
           status: 'programmata'
         })
         .eq('id', campaignId)
+        .eq('profile_id', user.id)
+        .eq('status', 'bozza') // Solo le bozze possono essere programmate
+
       if (error) throw error
       toast.success('Campagna programmata! Sarà avviata dal backend.')
       fetchData()
     } catch (error: any) {
       console.error('Error scheduling campaign:', error)
-      toast.error('Errore nella programmazione della campagna.')
+      toast.error(error.message || 'Errore nella programmazione della campagna')
     }
   }
 
   const handleStartCampaignNow = async (campaignId: string) => {
     try {
-      // Chiamata Edge Function per avviare la campagna
+      if (!user?.id) throw new Error('Utente non autenticato')
+
+      // Verifica che la campagna appartenga all'utente
+      const { data: campaign, error: fetchError } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('id', campaignId)
+        .eq('profile_id', user.id)
+        .single()
+
+      if (fetchError || !campaign) throw new Error('Campagna non trovata')
+      if (campaign.status !== 'bozza') throw new Error('Solo le bozze possono essere avviate')
+
       const { data, error } = await supabase.functions.invoke('start-campaign', {
         body: { campaignId }
       })
+      
       if (error) throw error
       toast.success('Avvio della campagna in corso...')
       fetchData()
     } catch (error: any) {
       console.error('Error starting campaign:', error)
-      toast.error("Errore nell'avvio della campagna.")
+      toast.error(error.message || "Errore nell'avvio della campagna")
     }
   }
 
@@ -261,11 +317,11 @@ export function CampaignsPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'bozza': return 'bg-gray-100 text-gray-800'
-      case 'scheduled': return 'bg-blue-100 text-blue-800'
+      case 'programmata': return 'bg-blue-100 text-blue-800'
       case 'in_progress': return 'bg-orange-100 text-orange-800'
-      case 'completed': return 'bg-green-100 text-green-800'
-      case 'cancelled': return 'bg-red-100 text-red-800'
-      case 'paused': return 'bg-yellow-100 text-yellow-800'
+      case 'completata': return 'bg-green-100 text-green-800'
+      case 'annullata': return 'bg-red-100 text-red-800'
+      case 'in_pausa': return 'bg-yellow-100 text-yellow-800'
       default: return 'bg-gray-100 text-gray-800'
     }
   }
@@ -273,13 +329,21 @@ export function CampaignsPage() {
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'bozza': return 'Bozza'
-      case 'scheduled': return 'Programmata'
+      case 'programmata': return 'Programmata'
       case 'in_progress': return 'In Invio'
-      case 'completed': return 'Completata'
-      case 'cancelled': return 'Annullata'
-      case 'paused': return 'In Pausa'
+      case 'completata': return 'Completata'
+      case 'annullata': return 'Annullata'
+      case 'in_pausa': return 'In Pausa'
       default: return status
     }
+  }
+
+  // Gestione input numerici migliorata
+  const handleNumericInput = (value: string, min: number, max: number, defaultVal: number) => {
+    if (value === '') return defaultVal
+    const parsed = parseInt(value)
+    if (isNaN(parsed)) return defaultVal
+    return Math.max(min, Math.min(max, parsed))
   }
 
   if (loading) {
@@ -486,15 +550,12 @@ export function CampaignsPage() {
                     type="number"
                     min="1"
                     max="72"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     value={formData.send_duration_hours}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFormData({
-                        ...formData,
-                        send_duration_hours: val === '' ? 1 : Math.max(1, Math.min(72, parseInt(val) || 1))
-                      });
-                    }}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      send_duration_hours: handleNumericInput(e.target.value, 1, 72, 1)
+                    })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -512,15 +573,12 @@ export function CampaignsPage() {
                     type="number"
                     min="10"
                     max="500"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     value={formData.emails_per_batch}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFormData({
-                        ...formData,
-                        emails_per_batch: val === '' ? 10 : Math.max(10, Math.min(500, parseInt(val) || 10))
-                      });
-                    }}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      emails_per_batch: handleNumericInput(e.target.value, 10, 500, 50)
+                    })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -529,15 +587,12 @@ export function CampaignsPage() {
                     type="number"
                     min="1"
                     max="60"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     value={formData.batch_interval_minutes}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFormData({
-                        ...formData,
-                        batch_interval_minutes: val === '' ? 1 : Math.max(1, Math.min(60, parseInt(val) || 1))
-                      });
-                    }}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      batch_interval_minutes: handleNumericInput(e.target.value, 1, 60, 15)
+                    })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
               </div>
@@ -600,13 +655,10 @@ export function CampaignsPage() {
                   id="warm_up_days"
                   name="warm_up_days"
                   value={formData.warm_up_days}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setFormData({
-                      ...formData,
-                      warm_up_days: val === '' ? 1 : Math.max(1, Math.min(30, parseInt(val) || 1))
-                    });
-                  }}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    warm_up_days: handleNumericInput(e.target.value, 1, 30, 3)
+                  })}
                   min={1}
                   max={30}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
