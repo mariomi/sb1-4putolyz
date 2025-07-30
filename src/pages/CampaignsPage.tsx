@@ -923,4 +923,15 @@ export function CampaignsPage() {
                 )}
                 
                 {selectedCampaign.status === 'draft' && (
-                  <div className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg ">
+                  <div className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium">
+                    <span>Questa campagna è ancora in bozza.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
