@@ -10,7 +10,7 @@ interface Campaign {
   name: string
   subject: string
   html_content: string
-  status: 'bozza' | 'in_progress' | 'completata' | 'programmata' | 'annullata' | 'in_pausa'
+  status: 'draft' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'paused'
   scheduled_at: string | null
   send_duration_hours: number
   start_time_of_day: string
@@ -137,7 +137,7 @@ export function CampaignsPage() {
       name: formData.name.trim(),
       subject: formData.subject.trim(),
       html_content: formData.html_content,
-      status: 'bozza' as const,
+      status: 'draft' as const,
       scheduled_at: null,
       send_duration_hours: handleNumericInput(String(formData.send_duration_hours), 1, 72, 1),
       start_time_of_day: formData.start_time_of_day,
@@ -221,11 +221,11 @@ export function CampaignsPage() {
         .from('campaigns')
         .update({
           scheduled_at: scheduledAt.toISOString(),
-          status: 'programmata'
+          status: 'scheduled'
         })
         .eq('id', campaignId)
         .eq('profile_id', user.id)
-        .eq('status', 'bozza') // Solo le bozze possono essere programmate
+        .eq('status', 'draft') // Solo le bozze possono essere programmate
 
       if (error) throw error
       toast.success('Campagna programmata! Sarà avviata dal backend.')
@@ -249,7 +249,7 @@ export function CampaignsPage() {
         .single()
 
       if (fetchError || !campaign) throw new Error('Campagna non trovata')
-      if (campaign.status !== 'bozza') throw new Error('Solo le bozze possono essere avviate')
+      if (campaign.status !== 'draft') throw new Error('Solo le bozze possono essere avviate')
 
       const { data, error } = await supabase.functions.invoke('start-campaign', {
         body: { campaignId }
@@ -316,24 +316,24 @@ export function CampaignsPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'bozza': return 'bg-gray-100 text-gray-800'
-      case 'programmata': return 'bg-blue-100 text-blue-800'
+      case 'draft': return 'bg-gray-100 text-gray-800'
+      case 'scheduled': return 'bg-blue-100 text-blue-800'
       case 'in_progress': return 'bg-orange-100 text-orange-800'
-      case 'completata': return 'bg-green-100 text-green-800'
-      case 'annullata': return 'bg-red-100 text-red-800'
-      case 'in_pausa': return 'bg-yellow-100 text-yellow-800'
+      case 'completed': return 'bg-green-100 text-green-800'
+      case 'cancelled': return 'bg-red-100 text-red-800'
+      case 'paused': return 'bg-yellow-100 text-yellow-800'
       default: return 'bg-gray-100 text-gray-800'
     }
   }
 
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case 'bozza': return 'Bozza'
-      case 'programmata': return 'Programmata'
+      case 'draft': return 'Bozza'
+      case 'scheduled': return 'Programmata'
       case 'in_progress': return 'In Invio'
-      case 'completata': return 'Completata'
-      case 'annullata': return 'Annullata'
-      case 'in_pausa': return 'In Pausa'
+      case 'completed': return 'Completata'
+      case 'cancelled': return 'Annullata'
+      case 'paused': return 'In Pausa'
       default: return status
     }
   }
@@ -425,7 +425,7 @@ export function CampaignsPage() {
                 )}
               </div>
               <div className="flex items-center space-x-2">
-                {campaign.status === 'bozza' && (
+                {campaign.status === 'draft' && (
                   <>
                     <button
                       onClick={() => handleStartCampaignNow(campaign.id)}
@@ -460,7 +460,7 @@ export function CampaignsPage() {
                   <span>Dettagli</span>
                 </button>
 
-                {campaign.status === 'bozza' && (
+                {campaign.status === 'draft' && (
                   <button
                     onClick={() => startEditing(campaign)}
                     className="px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg font-medium hover:from-purple-600 hover:to-purple-700 transition-all duration-300 flex items-center space-x-2"
@@ -471,7 +471,7 @@ export function CampaignsPage() {
                 )}
 
                 {/* Aggiunta di un bottone per eliminare le campagne */}
-                {campaign.status === 'bozza' && (
+                {campaign.status === 'draft' && (
                   <button
                     onClick={() => handleDeleteCampaign(campaign.id)}
                     className="px-4 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-all duration-300 flex items-center space-x-2"
@@ -861,7 +861,7 @@ export function CampaignsPage() {
               </div>
               {/* Action Buttons */}
               <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
-                {selectedCampaign.status === 'bozza' && (
+                {selectedCampaign.status === 'draft' && (
                   <>
                     <button
                       onClick={() => {
@@ -912,7 +912,7 @@ export function CampaignsPage() {
                   </div>
                 )}
                 
-                {selectedCampaign.status === 'bozza' && (
+                {selectedCampaign.status === 'draft' && (
                   <div className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium">
                     <span>Questa campagna è ancora in bozza.</span>
                   </div>
