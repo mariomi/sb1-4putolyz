@@ -1,14 +1,15 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-// Questi header sono la chiave per risolvere il problema del CORS
+// Configurazione CORS
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*', // O, per maggiore sicurezza: 'https://sb1-4putolyz.vercel.app'
+  'Access-Control-Allow-Origin': 'https://sb1-4putolyz.vercel.app', // Specifica il dominio del frontend
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
 serve(async (req) => {
-  // Gestione della richiesta preflight (pre-volo) del browser
+  // Gestione della richiesta preflight (OPTIONS)
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -26,8 +27,7 @@ serve(async (req) => {
       throw new Error('ID della campagna mancante nel corpo della richiesta.')
     }
 
-    // Qui inserisci la logica per avviare la campagna.
-    // Esempio: aggiorna lo stato della campagna nel database.
+    // Logica per avviare la campagna
     const { error: updateError } = await supabaseClient
       .from('campaigns')
       .update({ status: 'in_progress', updated_at: new Date().toISOString() })
