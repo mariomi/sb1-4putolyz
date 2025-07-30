@@ -488,10 +488,15 @@ export function CampaignsPage() {
                     max="72"
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     value={formData.send_duration_hours}
-                    onChange={(e) => setFormData({ ...formData, send_duration_hours: parseInt(e.target.value) })}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({
+                        ...formData,
+                        send_duration_hours: val === '' ? 1 : Math.max(1, Math.min(72, parseInt(val) || 1))
+                      });
+                    }}
                   />
                 </div>
-                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Orario Inizio</label>
                   <input
@@ -501,7 +506,6 @@ export function CampaignsPage() {
                     onChange={(e) => setFormData({ ...formData, start_time_of_day: e.target.value })}
                   />
                 </div>
-                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Email per Batch</label>
                   <input
@@ -510,10 +514,15 @@ export function CampaignsPage() {
                     max="500"
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     value={formData.emails_per_batch}
-                    onChange={(e) => setFormData({ ...formData, emails_per_batch: parseInt(e.target.value) })}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({
+                        ...formData,
+                        emails_per_batch: val === '' ? 10 : Math.max(10, Math.min(500, parseInt(val) || 10))
+                      });
+                    }}
                   />
                 </div>
-                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Intervallo (min)</label>
                   <input
@@ -522,7 +531,13 @@ export function CampaignsPage() {
                     max="60"
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     value={formData.batch_interval_minutes}
-                    onChange={(e) => setFormData({ ...formData, batch_interval_minutes: parseInt(e.target.value) })}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({
+                        ...formData,
+                        batch_interval_minutes: val === '' ? 1 : Math.max(1, Math.min(60, parseInt(val) || 1))
+                      });
+                    }}
                   />
                 </div>
               </div>
@@ -585,7 +600,13 @@ export function CampaignsPage() {
                   id="warm_up_days"
                   name="warm_up_days"
                   value={formData.warm_up_days}
-                  onChange={(e) => setFormData({ ...formData, warm_up_days: parseInt(e.target.value, 10) })}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({
+                      ...formData,
+                      warm_up_days: val === '' ? 1 : Math.max(1, Math.min(30, parseInt(val) || 1))
+                    });
+                  }}
                   min={1}
                   max={30}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
