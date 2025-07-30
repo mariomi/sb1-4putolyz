@@ -20,6 +20,7 @@ interface Campaign {
   created_at: string
   updated_at: string
   start_date: string | null
+  profile_id?: string // aggiungi opzionale
 }
 
 interface Group {
@@ -104,6 +105,7 @@ export function CampaignsPage() {
       return
     }
 
+    // Usa profile_id per associare la campagna all'utente
     const campaignData = {
       name: formData.name,
       subject: formData.subject,
@@ -116,7 +118,7 @@ export function CampaignsPage() {
       emails_per_batch: formData.emails_per_batch,
       batch_interval_minutes: formData.batch_interval_minutes,
       start_date: formData.start_date,
-      user_id: user?.id
+      profile_id: user?.id // usa profile_id, non user_id
     }
 
     try {
