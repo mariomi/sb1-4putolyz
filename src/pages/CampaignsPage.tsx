@@ -4,14 +4,13 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { toast } from 'react-hot-toast'
 import { formatDate } from '../lib/utils'
-import { Resend } from 'resend';
 
 interface Campaign {
   id: string
   name: string
   subject: string
   html_content: string
-  status: string
+  status: 'bozza' | 'in_progress' | 'completata' | 'programmata' | 'annullata' | 'in_pausa'
   scheduled_at: string | null
   send_duration_hours: number
   start_time_of_day: string
@@ -20,9 +19,8 @@ interface Campaign {
   batch_interval_minutes: number
   created_at: string
   updated_at: string
-  start_date: string | null; // Aggiunta della proprietà mancante
+  start_date: string | null
 }
-export default CampaignsPage;
 
 interface Group {
   id: string
@@ -39,6 +37,20 @@ interface Sender {
   daily_limit: number
 }
 
+const initialFormData = {
+  name: '',
+  subject: '',
+  html_content: '',
+  send_duration_hours: 1,
+  start_time_of_day: '09:00',
+  warm_up_days: 3,
+  emails_per_batch: 50,
+  batch_interval_minutes: 15,
+  selected_groups: [] as string[],
+  selected_senders: [] as string[],
+  start_date: ''
+}
+
 export function CampaignsPage() {
   const { user } = useAuth()
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
@@ -49,32 +61,11 @@ export function CampaignsPage() {
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null)
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null)
-  const [formData, setFormData] = useState({
-    name: '',
-    subject: '',
-    html_content: '',
-    send_duration_hours: 1,
-    start_time_of_day: '09:00',
-    warm_up_days: 3,
-    emails_per_batch: 50,
-    batch_interval_minutes: 15,
-    selected_groups: [] as string[],
-    selected_senders: [] as string[],
-    start_date: '' // Nuovo campo per la data di inizio
-  })
-
-  const resend = new Resend('re_xxxxxxxxx'); // Sostituisci con la tua API key
+  const [formData, setFormData] = useState(initialFormData)
 
   useEffect(() => {
     if (user) {
-      fetchData();
-
-      // Start interval to check for campaigns to update
-      const interval = setInterval(() => {
-        checkAndStartCampaigns();
-      }, 60000); // Check every 60 seconds
-
-      return () => clearInterval(interval); // Cleanup on unmount
+      fetchData()
     }
   }, [user])
 
@@ -86,11 +77,9 @@ export function CampaignsPage() {
         supabase.from('groups').select('*').order('name'),
         supabase.from('senders').select('*').eq('is_active', true).order('domain')
       ])
-
       if (campaignsRes.error) throw campaignsRes.error
       if (groupsRes.error) throw groupsRes.error
       if (sendersRes.error) throw sendersRes.error
-
       setCampaigns(campaignsRes.data || [])
       setGroups(groupsRes.data || [])
       setSenders(sendersRes.data || [])
@@ -102,315 +91,164 @@ export function CampaignsPage() {
     }
   }
 
-  // Funzione per inviare le email tramite Resend
-  async function sendCampaignEmailsWithResend(campaign: Campaign) {
-    // Recupera i destinatari e mittenti dal DB (qui esempio semplificato)
-    const { data: recipients, error: recipientsError } = await supabase
-      .from('recipients')
-      .select('email, first_name, last_name')
-      .eq('group_id', campaign.id); // Modifica se necessario
+  const resetForm = () => {
+    setFormData(initialFormData)
+    setEditingCampaign(null)
+    setShowCreateModal(false)
+  }
 
-    if (recipientsError) {
-      console.error('Errore destinatari:', recipientsError);
-      return;
+  const handleFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.name || !formData.subject || !formData.start_date) {
+      toast.error('Nome, oggetto e data di inizio sono obbligatori')
+      return
     }
 
-    // Recupera mittente (qui esempio semplificato)
-    const { data: senders, error: sendersError } = await supabase
-      .from('senders')
-      .select('email_from, display_name')
-      .eq('is_active', true);
-
-    if (sendersError) {
-      console.error('Errore mittenti:', sendersError);
-      return;
+    const campaignData = {
+      name: formData.name,
+      subject: formData.subject,
+      html_content: formData.html_content,
+      status: 'bozza',
+      scheduled_at: null,
+      send_duration_hours: formData.send_duration_hours,
+      start_time_of_day: formData.start_time_of_day,
+      warm_up_days: formData.warm_up_days,
+      emails_per_batch: formData.emails_per_batch,
+      batch_interval_minutes: formData.batch_interval_minutes,
+      start_date: formData.start_date,
+      user_id: user?.id
     }
 
-    // Prepara batch di email
-    const batchSize = campaign.emails_per_batch || 50;
-    const batches = [];
-    for (let i = 0; i < recipients.length; i += batchSize) {
-      batches.push(recipients.slice(i, i + batchSize));
-    }
-
-    // Invio batch con timer
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      const emails = batch.map((recipient) => ({
-        from: `${senders[0].display_name} <${senders[0].email_from}>`,
-        to: [recipient.email],
-        subject: campaign.subject,
-        html: campaign.html_content
-          .replace(/{{first_name}}/g, recipient.first_name)
-          .replace(/{{last_name}}/g, recipient.last_name)
-          .replace(/{{email}}/g, recipient.email),
-      }));
-
-      // Attendi l'intervallo tra i batch
-      if (batchIndex > 0) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, campaign.batch_interval_minutes * 60 * 1000)
-        );
+    try {
+      if (editingCampaign) {
+        const { data: updatedCampaign, error } = await supabase
+          .from('campaigns')
+          .update(campaignData)
+          .eq('id', editingCampaign.id)
+          .select()
+          .single()
+        if (error) throw error
+        await updateCampaignRelations(updatedCampaign.id)
+        toast.success('Campagna aggiornata con successo!')
+      } else {
+        const { data: newCampaign, error } = await supabase
+          .from('campaigns')
+          .insert(campaignData)
+          .select()
+          .single()
+        if (error) throw error
+        await updateCampaignRelations(newCampaign.id)
+        toast.success('Campagna creata con successo!')
       }
-
-      try {
-        await resend.batch.send(emails);
-        console.log(`Batch ${batchIndex + 1} inviato`);
-      } catch (err) {
-        console.error('Errore invio batch:', err);
-      }
+      resetForm()
+      fetchData()
+    } catch (error: any) {
+      console.error('Error saving campaign:', error)
+      toast.error('Errore nel salvataggio della campagna')
     }
   }
 
-  // Modifica la funzione che controlla e avvia le campagne
-  const checkAndStartCampaigns = async () => {
-    try {
-      const now = new Date().toISOString();
-
-      // Fetch campaigns that are in "draft", scheduled to start, and have a valid start_date
-      const { data: campaignsToStart, error } = await supabase
-        .from('campaigns')
-        .select('*')
-        .eq('status', 'bozza')
-        .lte('scheduled_at', now)
-        .lte('start_date', now); // Controlla anche la data di inizio
-
-      if (error) throw error;
-
-      if (campaignsToStart && campaignsToStart.length > 0) {
-        for (const campaign of campaignsToStart) {
-          // Aggiorna lo stato
-          const { error: updateError } = await supabase
-            .from('campaigns')
-            .update({ status: 'in_progress' })
-            .eq('id', campaign.id);
-
-          if (updateError) throw updateError;
-
-          // INVIA EMAIL CON RESEND
-          await sendCampaignEmailsWithResend(campaign);
-
-          console.log(`Campaign ${campaign.id} started and emails sent.`);
-        }
-
-        fetchData();
-      }
-    } catch (error: any) {
-      console.error('Error checking and starting campaigns:', error);
+  const updateCampaignRelations = async (campaignId: string) => {
+    await Promise.all([
+      supabase.from('campaign_groups').delete().eq('campaign_id', campaignId),
+      supabase.from('campaign_senders').delete().eq('campaign_id', campaignId)
+    ])
+    const groupRelations = formData.selected_groups.map(groupId => ({
+      campaign_id: campaignId,
+      group_id: groupId
+    }))
+    const senderRelations = formData.selected_senders.map(senderId => ({
+      campaign_id: campaignId,
+      sender_id: senderId
+    }))
+    if (groupRelations.length > 0) {
+      const { error: groupError } = await supabase.from('campaign_groups').insert(groupRelations)
+      if (groupError) throw groupError
     }
-  };
-
-  const handleCreateCampaign = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!formData.name || !formData.subject) {
-      toast.error('Nome e oggetto sono obbligatori');
-      return;
-    }
-
-    if (!formData.start_date) {
-      toast.error('La data di inizio è obbligatoria');
-      return;
-    }
-
-    try {
-      toast.success('Campagna creata con successo!');
-      setShowCreateModal(false);
-      setFormData({
-        name: '',
-        subject: '',
-        html_content: '',
-        send_duration_hours: 1,
-        start_time_of_day: '09:00',
-        warm_up_days: 3,
-        emails_per_batch: 50,
-        batch_interval_minutes: 15,
-        selected_groups: [],
-        selected_senders: [],
-        start_date: '' // Reset del campo
-      });
-      fetchData();
-    } catch (error: any) {
-      console.error('Error creating campaign:', error);
-      toast.error('Errore nella creazione della campagna');
-    }
-  }
-
-  const handleUpdateCampaign = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingCampaign) return;
-
-    if (!formData.name || !formData.subject) {
-      toast.error('Nome e oggetto sono obbligatori');
-      return;
-    }
-
-    if (!formData.start_date) {
-      toast.error('La data di inizio è obbligatoria');
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('campaigns')
-        .update({
-          name: formData.name,
-          subject: formData.subject,
-          html_content: formData.html_content,
-          send_duration_hours: formData.send_duration_hours,
-          start_time_of_day: formData.start_time_of_day,
-          warm_up_days: formData.warm_up_days,
-          emails_per_batch: formData.emails_per_batch,
-          batch_interval_minutes: formData.batch_interval_minutes,
-          start_date: formData.start_date // Nuovo campo
-        })
-        .eq('id', editingCampaign.id);
-
-      if (error) throw error;
-
-      toast.success('Campagna aggiornata con successo!');
-      setEditingCampaign(null);
-      setFormData({
-        name: '',
-        subject: '',
-        html_content: '',
-        send_duration_hours: 1,
-        start_time_of_day: '09:00',
-        warm_up_days: 3,
-        emails_per_batch: 50,
-        batch_interval_minutes: 15,
-        selected_groups: [],
-        selected_senders: [],
-        start_date: '' // Reset del campo
-      });
-      fetchData();
-    } catch (error: any) {
-      console.error('Error updating campaign:', error);
-      toast.error('Errore nell\'aggiornamento della campagna');
+    if (senderRelations.length > 0) {
+      const { error: senderError } = await supabase.from('campaign_senders').insert(senderRelations)
+      if (senderError) throw senderError
     }
   }
 
   const handleScheduleCampaign = async (campaignId: string) => {
-    const campaign = campaigns.find(c => c.id === campaignId)
-    if (!campaign) return
-
+    const scheduledAt = new Date()
+    scheduledAt.setMinutes(scheduledAt.getMinutes() + 1)
     try {
-      // Get selected groups and senders for this campaign
-      const selectedGroups = formData.selected_groups.length > 0 ? formData.selected_groups : groups.slice(0, 1).map(g => g.id)
-      const selectedSenders = formData.selected_senders.length > 0 ? formData.selected_senders : senders.slice(0, 1).map(s => s.id)
-
-      // Schedule the campaign for immediate sending
-      const scheduledAt = new Date()
-      scheduledAt.setMinutes(scheduledAt.getMinutes() + 2) // Start in 2 minutes
-
-      const { error: updateError } = await supabase
+      const { error } = await supabase
         .from('campaigns')
         .update({
           scheduled_at: scheduledAt.toISOString(),
-          status: 'in_progress'
+          status: 'programmata'
         })
         .eq('id', campaignId)
-
-      if (updateError) throw updateError
-
-      // Generate the campaign queue
-      const { data, error: rpcError } = await supabase.rpc(
-        'generate_campaign_queue',
-        {
-          p_campaign_id: campaignId,
-          p_group_ids: selectedGroups,
-          p_sender_ids: selectedSenders
-        }
-      )
-
-      if (rpcError) throw rpcError
-
-      console.log('Queue generation result:', data)
-      toast.success(`Campagna programmata! ${data.queue_entries} email in coda`)
+      if (error) throw error
+      toast.success('Campagna programmata! Sarà avviata dal backend.')
       fetchData()
     } catch (error: any) {
       console.error('Error scheduling campaign:', error)
-      toast.error('Errore nella programmazione della campagna')
+      toast.error('Errore nella programmazione della campagna.')
     }
   }
 
   const handleStartCampaignNow = async (campaignId: string) => {
-    const campaign = campaigns.find(c => c.id === campaignId)
-    if (!campaign) return
-
     try {
-      // Select groups and senders, defaulting to first available if none chosen
-      const selectedGroups = formData.selected_groups.length > 0 ? formData.selected_groups : groups.slice(0, 1).map(g => g.id)
-      const selectedSenders = formData.selected_senders.length > 0 ? formData.selected_senders : senders.slice(0, 1).map(s => s.id)
-
-      // Set schedule to now
-      const scheduledAt = new Date()
-
-      const { error: updateError } = await supabase
-        .from('campaigns')
-        .update({
-          scheduled_at: scheduledAt.toISOString(),
-          status: 'in_progress'
-        })
-        .eq('id', campaignId)
-
-      if (updateError) throw updateError
-
-      // Generate the campaign queue
-      const { data, error: rpcError } = await supabase.rpc(
-        'generate_campaign_queue',
-        {
-          p_campaign_id: campaignId,
-          p_group_ids: selectedGroups,
-          p_sender_ids: selectedSenders
-        }
-      )
-
-      if (rpcError) throw rpcError
-
-      console.log('Queue generation result:', data)
-      toast.success(`Campagna avviata! ${data.queue_entries} email in coda`)
+      // Chiamata Edge Function per avviare la campagna
+      const { data, error } = await supabase.functions.invoke('start-campaign', {
+        body: { campaignId }
+      })
+      if (error) throw error
+      toast.success('Avvio della campagna in corso...')
       fetchData()
     } catch (error: any) {
       console.error('Error starting campaign:', error)
-      toast.error('Errore nell\'avvio della campagna')
+      toast.error("Errore nell'avvio della campagna.")
     }
   }
 
   const handleDeleteCampaign = async (campaignId: string) => {
-    if (!confirm('Sei sicuro di voler eliminare questa campagna?')) return
-
+    if (!confirm('Sei sicuro di voler eliminare questa campagna? L\'azione non può essere annullata.')) return
     try {
+      await Promise.all([
+        supabase.from('campaign_groups').delete().eq('campaign_id', campaignId),
+        supabase.from('campaign_senders').delete().eq('campaign_id', campaignId)
+      ])
       const { error } = await supabase
         .from('campaigns')
         .delete()
         .eq('id', campaignId)
-
       if (error) throw error
-
-      toast.success('Campagna eliminata')
+      toast.success('Campagna eliminata con successo')
       fetchData()
     } catch (error: any) {
       console.error('Error deleting campaign:', error)
-      toast.error('Errore nell\'eliminazione della campagna')
+      toast.error("Errore nell'eliminazione della campagna")
     }
   }
 
-  const startEditing = (campaign: Campaign) => {
-    setEditingCampaign(campaign);
-    setFormData({
-      name: campaign.name,
-      subject: campaign.subject,
-      html_content: campaign.html_content,
-      send_duration_hours: campaign.send_duration_hours,
-      start_time_of_day: campaign.start_time_of_day,
-      warm_up_days: campaign.warm_up_days,
-      emails_per_batch: campaign.emails_per_batch,
-      batch_interval_minutes: campaign.batch_interval_minutes,
-      selected_groups: [], // Ensure this is initialized
-      selected_senders: [], // Ensure this is initialized
-      start_date: campaign.scheduled_at || '' // Ensure start_date is set
-    })
+  const startEditing = async (campaign: Campaign) => {
+    setLoading(true)
+    try {
+      const [groupsRes, sendersRes] = await Promise.all([
+        supabase.from('campaign_groups').select('group_id').eq('campaign_id', campaign.id),
+        supabase.from('campaign_senders').select('sender_id').eq('campaign_id', campaign.id)
+      ])
+      if (groupsRes.error) throw groupsRes.error
+      if (sendersRes.error) throw sendersRes.error
+      setEditingCampaign(campaign)
+      setFormData({
+        ...campaign,
+        selected_groups: groupsRes.data.map(g => g.group_id),
+        selected_senders: sendersRes.data.map(s => s.sender_id),
+        start_date: campaign.start_date || ''
+      })
+      setShowCreateModal(true)
+    } catch (error) {
+      console.error("Error fetching campaign relations:", error)
+      toast.error("Impossibile caricare i dettagli della campagna per la modifica.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const showCampaignDetails = (campaign: Campaign) => {
@@ -603,7 +441,7 @@ export function CampaignsPage() {
             <h2 className="text-2xl font-bold mb-6">
               {editingCampaign ? 'Modifica Campagna' : 'Crea Nuova Campagna'}
             </h2>
-            <form onSubmit={editingCampaign ? handleUpdateCampaign : handleCreateCampaign}>
+            <form onSubmit={handleFormSubmit}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Nome Campagna</label>
@@ -769,23 +607,7 @@ export function CampaignsPage() {
               <div className="flex items-center justify-end space-x-4">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowCreateModal(false)
-                    setEditingCampaign(null)
-                    setFormData({
-                      name: '',
-                      subject: '',
-                      html_content: '',
-                      send_duration_hours: 1,
-                      start_time_of_day: '09:00',
-                      warm_up_days: 3,
-                      emails_per_batch: 50,
-                      batch_interval_minutes: 15,
-                      selected_groups: [],
-                      selected_senders: [],
-                      start_date: '' // Aggiunta della proprietà mancante
-                    })
-                  }}
+                  onClick={resetForm}
                   className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
                 >
                   Annulla
@@ -1028,3 +850,20 @@ export function CampaignsPage() {
     </div>
   )
 }
+
+// NOTA: Per automatizzare l'invio delle campagne programmate, aggiungi questa configurazione a pg_cron nel tuo database Supabase:
+//
+// -- Menjadwalkan fungsi per inviare campagne programmate ogni minuto
+// SELECT cron.schedule(
+//   'send-scheduled-campaigns-job',
+//   '* * * * *', -- Ogni minuto
+//   $$
+//   SELECT net.http_post(
+//       url:='https://<ID_PROYEK_ANDA>.supabase.co/functions/v1/send-scheduled-campaigns',
+//       headers:='{"Content-Type": "application/json", "Authorization": "Bearer <SERVICE_ROLE_KEY_ANDA>"}'::jsonb
+//   )
+//   $$
+// );
+//
+// Sostituisci <ID_PROYEK_ANDA> e <SERVICE_ROLE_KEY_ANDA> con i tuoi dati reali.
+// Questo farà sì che la funzione Edge venga chiamata ogni minuto e gestisca l'invio delle campagne programmate.
