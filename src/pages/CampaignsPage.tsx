@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { toast } from 'react-hot-toast'
 import { formatDate } from '../lib/utils'
+import { Resend } from 'resend';
 
 interface Campaign {
   id: string
@@ -62,6 +63,8 @@ export function CampaignsPage() {
     start_date: '' // Nuovo campo per la data di inizio
   })
 
+  const resend = new Resend('re_xxxxxxxxx'); // Sostituisci con la tua API key
+
   useEffect(() => {
     if (user) {
       fetchData();
@@ -99,6 +102,67 @@ export function CampaignsPage() {
     }
   }
 
+  // Funzione per inviare le email tramite Resend
+  async function sendCampaignEmailsWithResend(campaign: Campaign) {
+    // Recupera i destinatari e mittenti dal DB (qui esempio semplificato)
+    const { data: recipients, error: recipientsError } = await supabase
+      .from('recipients')
+      .select('email, first_name, last_name')
+      .eq('group_id', campaign.id); // Modifica se necessario
+
+    if (recipientsError) {
+      console.error('Errore destinatari:', recipientsError);
+      return;
+    }
+
+    // Recupera mittente (qui esempio semplificato)
+    const { data: senders, error: sendersError } = await supabase
+      .from('senders')
+      .select('email_from, display_name')
+      .eq('is_active', true);
+
+    if (sendersError) {
+      console.error('Errore mittenti:', sendersError);
+      return;
+    }
+
+    // Prepara batch di email
+    const batchSize = campaign.emails_per_batch || 50;
+    const batches = [];
+    for (let i = 0; i < recipients.length; i += batchSize) {
+      batches.push(recipients.slice(i, i + batchSize));
+    }
+
+    // Invio batch con timer
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      const emails = batch.map((recipient) => ({
+        from: `${senders[0].display_name} <${senders[0].email_from}>`,
+        to: [recipient.email],
+        subject: campaign.subject,
+        html: campaign.html_content
+          .replace(/{{first_name}}/g, recipient.first_name)
+          .replace(/{{last_name}}/g, recipient.last_name)
+          .replace(/{{email}}/g, recipient.email),
+      }));
+
+      // Attendi l'intervallo tra i batch
+      if (batchIndex > 0) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, campaign.batch_interval_minutes * 60 * 1000)
+        );
+      }
+
+      try {
+        await resend.batch.send(emails);
+        console.log(`Batch ${batchIndex + 1} inviato`);
+      } catch (err) {
+        console.error('Errore invio batch:', err);
+      }
+    }
+  }
+
+  // Modifica la funzione che controlla e avvia le campagne
   const checkAndStartCampaigns = async () => {
     try {
       const now = new Date().toISOString();
@@ -115,6 +179,7 @@ export function CampaignsPage() {
 
       if (campaignsToStart && campaignsToStart.length > 0) {
         for (const campaign of campaignsToStart) {
+          // Aggiorna lo stato
           const { error: updateError } = await supabase
             .from('campaigns')
             .update({ status: 'in_progress' })
@@ -122,7 +187,10 @@ export function CampaignsPage() {
 
           if (updateError) throw updateError;
 
-          console.log(`Campaign ${campaign.id} started.`);
+          // INVIA EMAIL CON RESEND
+          await sendCampaignEmailsWithResend(campaign);
+
+          console.log(`Campaign ${campaign.id} started and emails sent.`);
         }
 
         fetchData();
