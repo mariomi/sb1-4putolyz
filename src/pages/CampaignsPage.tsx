@@ -127,9 +127,12 @@ export function CampaignsPage() {
       return
     }
 
+    // Permetti la data odierna (>= oggi)
     const startDate = new Date(formData.start_date)
-    if (startDate < new Date()) {
-      toast.error('La data di inizio deve essere futura')
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (startDate < today) {
+      toast.error('La data di inizio deve essere oggi o futura')
       return
     }
 
@@ -251,16 +254,23 @@ export function CampaignsPage() {
       if (fetchError || !campaign) throw new Error('Campagna non trovata')
       if (campaign.status !== 'draft') throw new Error('Solo le bozze possono essere avviate')
 
+      // Chiamata Edge Function
       const { data, error } = await supabase.functions.invoke('start-campaign', {
-        body: { campaignId }
+        body: { campaignId },
+        headers: { 'Content-Type': 'application/json' } // aggiungi sempre Content-Type
       })
       
       if (error) throw error
       toast.success('Avvio della campagna in corso...')
       fetchData()
     } catch (error: any) {
+      // Messaggio più chiaro per CORS
+      if (error.message?.includes('Failed to send a request to the Edge Function')) {
+        toast.error('Errore CORS: aggiungi il dominio Vercel tra gli Allowed Origins della funzione su Supabase')
+      } else {
+        toast.error(error.message || "Errore nell'avvio della campagna")
+      }
       console.error('Error starting campaign:', error)
-      toast.error(error.message || "Errore nell'avvio della campagna")
     }
   }
 
@@ -913,32 +923,4 @@ export function CampaignsPage() {
                 )}
                 
                 {selectedCampaign.status === 'draft' && (
-                  <div className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium">
-                    <span>Questa campagna è ancora in bozza.</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// NOTA: Per automatizzare l'invio delle campagne programmate, aggiungi questa configurazione a pg_cron nel tuo database Supabase:
-//
-// -- Menjadwalkan fungsi per inviare campagne programmate ogni minuto
-// SELECT cron.schedule(
-//   'send-scheduled-campaigns-job',
-//   '* * * * *', -- Ogni minuto
-//   $$
-//   SELECT net.http_post(
-//       url:='https://<ID_PROYEK_ANDA>.supabase.co/functions/v1/send-scheduled-campaigns',
-//       headers:='{"Content-Type": "application/json", "Authorization": "Bearer <SERVICE_ROLE_KEY_ANDA>"}'::jsonb
-//   )
-//   $$
-// );
-//
-// Sostituisci <ID_PROYEK_ANDA> e <SERVICE_ROLE_KEY_ANDA> con i tuoi dati reali.
-// Questo farà sì che la funzione Edge venga chiamata ogni minuto e gestisca l'invio delle campagne programmate.
+                  <div className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg
