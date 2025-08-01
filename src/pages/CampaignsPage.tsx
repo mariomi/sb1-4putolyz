@@ -10,7 +10,7 @@ interface Campaign {
   name: string
   subject: string
   html_content: string
-  status: 'draft' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'paused'
+  status: 'draft' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'paused' | 'sending'
   scheduled_at: string | null
   send_duration_hours: number
   start_time_of_day: string
@@ -217,13 +217,30 @@ export function CampaignsPage() {
       })
 
       if (error) {
-          toast.error(error.message || "Errore nell'avvio della campagna")
-        throw error
+        console.error('Error from start-campaign function:', error)
+        toast.error(error.message || "Errore nell'avvio della campagna")
+        return
       }
-      toast.success('Avvio della campagna in corso...')
-      await fetchData()
+      
+      toast.success('Campagna avviata con successo! Le email verranno inviate secondo la programmazione.')
+      
+      // Aggiorna immediatamente lo status locale per evitare il "flash" del pulsante
+      setCampaigns(prevCampaigns => 
+        prevCampaigns.map(c => 
+          c.id === campaignId 
+            ? { ...c, status: 'sending' as const }
+            : c
+        )
+      )
+      
+      // Ricarica i dati dopo un breve delay per assicurarsi che tutto sia sincronizzato
+      setTimeout(() => {
+        fetchData()
+      }, 1000)
+      
     } catch (error: any) {
-      console.error('Error starting campaign:', error.message)
+      console.error('Error starting campaign:', error)
+      toast.error(error.message || "Errore nell'avvio della campagna")
     } finally {
       setIsActionLoading(null)
     }
@@ -283,6 +300,7 @@ export function CampaignsPage() {
     switch (status) {
       case 'draft': return 'bg-gray-100 text-gray-800'
       case 'scheduled': return 'bg-blue-100 text-blue-800'
+      case 'sending': return 'bg-orange-100 text-orange-800'
       case 'in_progress': return 'bg-orange-100 text-orange-800'
       case 'completed': return 'bg-green-100 text-green-800'
       case 'cancelled': return 'bg-red-100 text-red-800'
@@ -295,6 +313,7 @@ export function CampaignsPage() {
     switch (status) {
       case 'draft': return 'Bozza'
       case 'scheduled': return 'Programmata'
+      case 'sending': return 'In Invio'
       case 'in_progress': return 'In Invio'
       case 'completed': return 'Completata'
       case 'cancelled': return 'Annullata'
@@ -387,7 +406,12 @@ export function CampaignsPage() {
                     </button>
                   </>
                 )}
-                {campaign.status === 'in_progress' && <button className="px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-lg font-medium hover:from-orange-600 hover:to-orange-700 transition-all duration-300 flex items-center space-x-2"><Pause className="h-4 w-4" /><span>Pausa</span></button>}
+                {(campaign.status === 'sending' || campaign.status === 'in_progress') && (
+                  <div className="px-4 py-2 bg-orange-100 text-orange-800 rounded-lg font-medium flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                    <span>Campagna in corso</span>
+                  </div>
+                )}
                 <button onClick={() => showCampaignDetails(campaign)} disabled={!!isActionLoading} className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-medium hover:from-blue-600 hover:to-blue-700 transition-all duration-300 flex items-center space-x-2 disabled:opacity-50"><Eye className="h-4 w-4" /><span>Dettagli</span></button>
                 {campaign.status === 'draft' && <button onClick={() => startEditing(campaign)} disabled={!!isActionLoading} className="px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg font-medium hover:from-purple-600 hover:to-purple-700 transition-all duration-300 flex items-center space-x-2 disabled:opacity-50"><Edit2 className="h-4 w-4" /><span>Modifica</span></button>}
                 {campaign.status === 'draft' && <button onClick={() => handleDeleteCampaign(campaign.id)} disabled={!!isActionLoading} className="px-4 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-all duration-300 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed">
@@ -470,7 +494,7 @@ export function CampaignsPage() {
               </div>
               <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
                 {selectedCampaign.status === 'draft' && (<><button onClick={() => { setShowDetailsModal(false); handleStartCampaignNow(selectedCampaign.id) }} className="px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl font-medium hover:from-green-700 hover:to-green-800 transition-all duration-300 flex items-center space-x-2 shadow-lg"><Play className="h-4 w-4" /><span>Avvia Ora</span></button><button onClick={() => { setShowDetailsModal(false); handleScheduleCampaign(selectedCampaign.id) }} className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-medium hover:from-blue-600 hover:to-blue-700 transition-all duration-300 flex items-center space-x-2 shadow-lg"><Calendar className="h-4 w-4" /><span>Programma</span></button><button onClick={() => { setShowDetailsModal(false); startEditing(selectedCampaign) }} className="px-6 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-medium hover:from-purple-600 hover:to-purple-700 transition-all duration-300 flex items-center space-x-2"><Edit2 className="h-4 w-4" /><span>Modifica Campagna</span></button></>)}
-                {selectedCampaign.status === 'in_progress' && (<div className="px-6 py-3 bg-orange-100 text-orange-800 rounded-xl font-medium flex items-center space-x-2"><div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div><span>Campagna in corso di invio</span></div>)}
+                {(selectedCampaign.status === 'sending' || selectedCampaign.status === 'in_progress') && (<div className="px-6 py-3 bg-orange-100 text-orange-800 rounded-xl font-medium flex items-center space-x-2"><div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div><span>Campagna in corso di invio</span></div>)}
                 {selectedCampaign.status === 'completed' && (<div className="px-6 py-3 bg-green-100 text-green-800 rounded-xl font-medium flex items-center space-x-2"><CheckCircle className="h-4 w-4" /><span>Campagna completata</span></div>)}
               </div>
             </div>

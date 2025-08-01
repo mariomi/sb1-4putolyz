@@ -68,12 +68,12 @@ Deno.serve(async (req: Request) => {
         campaign:campaigns!inner(name, subject, html_content, status, start_time_of_day, send_duration_hours)
       `)
       .eq('status', 'pending')
-      .lte('scheduled_for', now)
+      .lte('scheduled_time', now)
       .eq('contact.is_active', true)
       .eq('sender.is_active', true)
       .eq('campaign.status', 'sending')
       .limit(50)
-      .order('scheduled_for', { ascending: true })
+      .order('scheduled_time', { ascending: true })
 
     if (queueError) {
       console.error('❌ Error fetching queue items:', queueError)

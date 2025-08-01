@@ -15,6 +15,7 @@
   2. Modifications
     - Update `senders` table to reference domains
     - Add import-related columns
+    - Align campaign table column names with frontend expectations
 
   3. Security
     - Enable RLS on domains table  
@@ -83,6 +84,108 @@ CREATE TABLE IF NOT EXISTS import_batches (
   created_at timestamptz DEFAULT now(),
   completed_at timestamptz
 );
+
+-- Align campaign table column names with frontend expectations
+DO $$
+BEGIN
+  -- Add new columns with English names
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'name'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN name text;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'subject'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN subject text;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'html_content'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN html_content text;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'status'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN status text DEFAULT 'draft';
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'profile_id'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN profile_id uuid REFERENCES profiles(id) ON DELETE CASCADE;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'send_duration_hours'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN send_duration_hours integer DEFAULT 1;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'start_time_of_day'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN start_time_of_day text DEFAULT '09:00';
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'warm_up_days'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN warm_up_days integer DEFAULT 3;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'emails_per_batch'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN emails_per_batch integer DEFAULT 50;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'batch_interval_minutes'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN batch_interval_minutes integer DEFAULT 15;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'start_date'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN start_date date;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'campaigns' AND column_name = 'updated_at'
+  ) THEN
+    ALTER TABLE campaigns ADD COLUMN updated_at timestamptz DEFAULT now();
+  END IF;
+END $$;
+
+-- Copy data from old columns to new columns
+UPDATE campaigns SET 
+  name = nome,
+  subject = oggetto,
+  html_content = contenuto_html,
+  status = CASE 
+    WHEN stato = 'bozza' THEN 'draft'
+    WHEN stato = 'in_progress' THEN 'sending'
+    WHEN stato = 'completed' THEN 'completed'
+    ELSE 'draft'
+  END
+WHERE name IS NULL OR subject IS NULL OR html_content IS NULL OR status IS NULL;
 
 -- Enable RLS
 ALTER TABLE domains ENABLE ROW LEVEL SECURITY;
