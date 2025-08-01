@@ -217,14 +217,7 @@ export function CampaignsPage() {
       })
 
       if (error) {
-        if (error.message.includes('CORS') || error.message.includes('Failed to send a request')) {
-          toast.error(
-            "Errore di configurazione CORS. L'URL del sito (" + window.location.origin + ") deve essere aggiunto agli 'Allowed Origins' della tua Edge Function su Supabase.",
-            { duration: 8000 }
-          )
-        } else {
           toast.error(error.message || "Errore nell'avvio della campagna")
-        }
         throw error
       }
       toast.success('Avvio della campagna in corso...')
