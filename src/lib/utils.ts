@@ -15,3 +15,14 @@ export function formatDate(value: string | Date | null) {
     return "";
   }
 }
+
+export function formatDateTime(value: string | Date | null) {
+  if (!value) return "";
+  try {
+    const date = new Date(value);
+    if (isNaN(date.getTime())) return "";
+    return date.toLocaleDateString() + ' alle ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  } catch {
+    return "";
+  }
+}

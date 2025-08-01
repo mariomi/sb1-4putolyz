@@ -3,14 +3,14 @@
 
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-// --- Contenuto di _shared/cors.ts INCOLLATO QUI ---
+// CORS headers
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+}
 
 // --- FUNZIONE CORRETTA CHE USA IL SISTEMA DI CODE ---
-async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId: string) {
+async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId: string, startImmediately: boolean = false) {
   console.log(`[EXEC] Starting campaign execution for ID: ${campaignId}`);
 
   try {
@@ -25,8 +25,9 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
       throw new Error(`Campaign with ID ${campaignId} not found.`);
     }
 
-    if (campaign.status !== 'draft') {
-      throw new Error(`Campaign is not in draft status. Current status: ${campaign.status}`);
+    // Accetta 'draft', 'scheduled' e 'sending' per permettere la riprogrammazione
+    if (campaign.status !== 'draft' && campaign.status !== 'scheduled' && campaign.status !== 'sending') {
+      throw new Error(`Campaign is not in draft, scheduled, or sending status. Current status: ${campaign.status}`);
     }
 
     // 2. Ottieni i gruppi e mittenti associati alla campagna
@@ -51,10 +52,27 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
     }
 
     // 3. Ottieni tutti i contatti dei gruppi associati
+    // Prima ottieni i contact_id dai gruppi
+    const { data: contactGroupsData, error: contactGroupsError } = await supabaseAdmin
+      .from('contact_groups')
+      .select('contact_id')
+      .in('group_id', groupIds);
+
+    if (contactGroupsError) {
+      throw new Error('Failed to fetch contact groups.');
+    }
+
+    const contactIds = contactGroupsData?.map(cg => cg.contact_id) || [];
+
+    if (contactIds.length === 0) {
+      throw new Error('No contacts found in the associated groups.');
+    }
+
+    // Poi ottieni i dettagli dei contatti
     const { data: contacts, error: contactsError } = await supabaseAdmin
       .from('contacts')
       .select('id, email, first_name, last_name, is_active')
-      .in('group_id', groupIds)
+      .in('id', contactIds)
       .eq('is_active', true);
 
     if (contactsError) {
@@ -93,15 +111,41 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
 
     console.log(`[EXEC] Campaign status updated to 'sending'.`);
 
-    // 6. Calcola i tempi di scheduling
-    const startDate = new Date(campaign.start_date);
-    const [startHour, startMinute] = campaign.start_time_of_day.split(':').map(Number);
-    startDate.setHours(startHour, startMinute, 0, 0);
+    // 6. Elimina le email esistenti se la campagna è già in sending
+    if (campaign.status === 'sending') {
+      console.log(`[EXEC] Campaign already in sending status, deleting existing queue entries...`);
+      const { error: deleteError } = await supabaseAdmin
+        .from('campaign_queues')
+        .delete()
+        .eq('campaign_id', campaignId);
+      
+      if (deleteError) {
+        console.error('[EXEC] Error deleting existing queue entries:', deleteError);
+      } else {
+        console.log(`[EXEC] Deleted existing queue entries for campaign ${campaignId}`);
+      }
+    }
 
+    // 7. Calcola i tempi di scheduling - INIZIA ORA se startImmediately=true, altrimenti usa la programmazione
     const now = new Date();
-    const firstBatchTime = startDate > now ? startDate : now;
+    let firstBatchTime;
+    
+    if (startImmediately) {
+      // Avvio immediato: inizia subito
+      firstBatchTime = now;
+      console.log(`[EXEC] IMMEDIATE START: Scheduling first batch for NOW: ${firstBatchTime.toISOString()}`);
+    } else {
+      // Programmazione normale: usa start_date e start_time_of_day
+      const startDate = new Date(campaign.start_date);
+      const [startHour, startMinute] = campaign.start_time_of_day.split(':').map(Number);
+      startDate.setHours(startHour, startMinute, 0, 0);
+      firstBatchTime = startDate > now ? startDate : now;
+      console.log(`[EXEC] SCHEDULED START: Scheduling first batch for: ${firstBatchTime.toISOString()}`);
+    }
+    
+    console.log(`[EXEC] Campaign start_date: ${campaign.start_date}, start_time_of_day: ${campaign.start_time_of_day}`);
 
-    // 7. Crea le entries nella coda per ogni contatto
+    // 8. Crea le entries nella coda per ogni contatto
     const queueEntries = [];
     let senderIndex = 0;
     let batchIndex = 0;
@@ -120,7 +164,7 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
           contact_id: contact.id,
           sender_id: sender.id,
           status: 'pending',
-          scheduled_time: batchTime.toISOString(),
+          scheduled_for: batchTime.toISOString(),
           retry_count: 0
         });
 
@@ -130,7 +174,7 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
       batchIndex++;
     }
 
-    // 8. Inserisci tutte le entries nella coda
+    // 9. Inserisci tutte le entries nella coda
     const { error: queueError } = await supabaseAdmin
       .from('campaign_queues')
       .insert(queueEntries);
@@ -150,6 +194,18 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
 
     console.log(`[EXEC] Created ${queueEntries.length} queue entries for campaign ${campaignId}.`);
     console.log(`[EXEC] Campaign ${campaignId} started successfully with queue system.`);
+    
+    // Log dettagliato per debugging
+    console.log(`[EXEC] Campaign details:`, {
+      id: campaignId,
+      name: campaign.name,
+      emails_per_batch: campaign.emails_per_batch,
+      batch_interval_minutes: campaign.batch_interval_minutes,
+      total_contacts: contacts.length,
+      total_senders: senders.length,
+      queue_entries_created: queueEntries.length,
+      first_batch_time: firstBatchTime.toISOString()
+    });
 
   } catch (error) {
     console.error(`[EXEC] Error during campaign execution for ${campaignId}:`, error);
@@ -171,16 +227,17 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
   }
 }
 
-// --- LA FUNZIONE PRINCIPALE ---
+// --- LA FUNZIONE PRINCIPALE CON CORS CORRETTO ---
 console.log(`🚀 Function "start-campaign" up and running!`);
 
 Deno.serve(async (req) => {
+  // Gestione CORS per preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { campaignId } = await req.json()
+    const { campaignId, startImmediately } = await req.json()
 
     if (!campaignId) {
       throw new Error('Missing campaignId in request body')
@@ -193,10 +250,11 @@ Deno.serve(async (req) => {
     )
 
     // Chiama la funzione corretta che usa il sistema di code
-    await startCampaignExecution(supabaseAdmin, campaignId)
+    await startCampaignExecution(supabaseAdmin, campaignId, startImmediately)
 
     return new Response(JSON.stringify({ 
-      message: `Campaign ${campaignId} started successfully and queued for processing.` 
+      success: true,
+      message: `Campaign ${campaignId} started successfully` 
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
@@ -204,7 +262,10 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('Error in start-campaign function:', error)
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ 
+      success: false,
+      error: error.message 
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,
     })

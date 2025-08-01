@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Users, Trash2, Edit2 } from 'lucide-react'
+import { Plus, Users, Trash2, Edit2, UserPlus, X, Check, Mail, User } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { toast } from 'react-hot-toast'
@@ -16,6 +16,19 @@ interface GroupWithCount extends Group {
   contact_count: number
 }
 
+interface Contact {
+  id: string
+  email: string
+  first_name: string
+  last_name: string
+  is_active: boolean
+  created_at: string
+}
+
+interface ContactWithAssignment extends Contact {
+  is_assigned: boolean
+}
+
 export function GroupsPage() {
   const { user } = useAuth()
   const [groups, setGroups] = useState<GroupWithCount[]>([])
@@ -25,6 +38,18 @@ export function GroupsPage() {
   const [formData, setFormData] = useState({
     name: '',
     description: ''
+  })
+  
+  // Contact management states
+  const [showContactModal, setShowContactModal] = useState(false)
+  const [showNewContactModal, setShowNewContactModal] = useState(false)
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
+  const [contacts, setContacts] = useState<ContactWithAssignment[]>([])
+  const [contactsLoading, setContactsLoading] = useState(false)
+  const [newContactData, setNewContactData] = useState({
+    email: '',
+    first_name: '',
+    last_name: ''
   })
 
   useEffect(() => {
@@ -137,6 +162,154 @@ export function GroupsPage() {
     })
   }
 
+  // Contact management functions
+  const fetchContactsForGroup = async (groupId: string) => {
+    setContactsLoading(true)
+    try {
+      // Fetch all active contacts
+      const { data: allContacts, error: contactsError } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('is_active', true)
+        .order('first_name', { ascending: true })
+
+      if (contactsError) throw contactsError
+
+      // Fetch existing assignments for this group
+      const { data: assignments, error: assignError } = await supabase
+        .from('contact_groups')
+        .select('contact_id')
+        .eq('group_id', groupId)
+
+      if (assignError) throw assignError
+
+      const assignedContactIds = new Set(assignments?.map(a => a.contact_id) || [])
+
+      // Mark contacts as assigned/unassigned
+      const contactsWithAssignment: ContactWithAssignment[] = (allContacts || []).map(contact => ({
+        ...contact,
+        is_assigned: assignedContactIds.has(contact.id)
+      }))
+
+      setContacts(contactsWithAssignment)
+    } catch (error: any) {
+      console.error('Error fetching contacts:', error)
+      toast.error('Errore nel caricamento dei contatti')
+    } finally {
+      setContactsLoading(false)
+    }
+  }
+
+  const handleManageContacts = async (group: Group) => {
+    setSelectedGroup(group)
+    setShowContactModal(true)
+    await fetchContactsForGroup(group.id)
+  }
+
+  const toggleContactAssignment = async (contactId: string, currentlyAssigned: boolean) => {
+    if (!selectedGroup) return
+
+    try {
+      if (currentlyAssigned) {
+        // Remove from group
+        const { error } = await supabase
+          .from('contact_groups')
+          .delete()
+          .eq('contact_id', contactId)
+          .eq('group_id', selectedGroup.id)
+
+        if (error) throw error
+        toast.success('Contatto rimosso dal gruppo')
+      } else {
+        // Add to group
+        const { error } = await supabase
+          .from('contact_groups')
+          .insert({
+            contact_id: contactId,
+            group_id: selectedGroup.id
+          })
+
+        if (error) throw error
+        toast.success('Contatto aggiunto al gruppo')
+      }
+
+      // Update local state
+      setContacts(prev => prev.map(contact => 
+        contact.id === contactId 
+          ? { ...contact, is_assigned: !currentlyAssigned }
+          : contact
+      ))
+
+      // Update group count in the main list
+      setGroups(prev => prev.map(group => 
+        group.id === selectedGroup.id
+          ? { 
+              ...group, 
+              contact_count: currentlyAssigned 
+                ? group.contact_count - 1 
+                : group.contact_count + 1 
+            }
+          : group
+      ))
+
+    } catch (error: any) {
+      console.error('Error toggling contact assignment:', error)
+      toast.error('Errore nell\'assegnazione del contatto')
+    }
+  }
+
+  const handleCreateNewContact = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user || !selectedGroup) return
+
+    try {
+      // Create new contact
+      const { data: newContact, error: contactError } = await supabase
+        .from('contacts')
+        .insert({
+          email: newContactData.email,
+          first_name: newContactData.first_name,
+          last_name: newContactData.last_name,
+          profile_id: user.id,
+          is_active: true
+        })
+        .select()
+        .single()
+
+      if (contactError) throw contactError
+
+      // Assign to current group
+      const { error: assignError } = await supabase
+        .from('contact_groups')
+        .insert({
+          contact_id: newContact.id,
+          group_id: selectedGroup.id
+        })
+
+      if (assignError) throw assignError
+
+      toast.success('Nuovo contatto creato e aggiunto al gruppo!')
+      
+      // Reset form
+      setNewContactData({ email: '', first_name: '', last_name: '' })
+      setShowNewContactModal(false)
+      
+      // Refresh contacts list
+      await fetchContactsForGroup(selectedGroup.id)
+      
+      // Update group count
+      setGroups(prev => prev.map(group => 
+        group.id === selectedGroup.id
+          ? { ...group, contact_count: group.contact_count + 1 }
+          : group
+      ))
+
+    } catch (error: any) {
+      console.error('Error creating contact:', error)
+      toast.error('Errore nella creazione del contatto')
+    }
+  }
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -187,6 +360,13 @@ export function GroupsPage() {
                   className="p-2 text-gray-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors"
                 >
                   <Edit2 className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => handleManageContacts(group)}
+                  className="p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
+                  title="Gestisci Contatti"
+                >
+                  <UserPlus className="h-4 w-4" />
                 </button>
                 <button
                   onClick={() => handleDeleteGroup(group.id)}
@@ -276,6 +456,176 @@ export function GroupsPage() {
                   className="px-6 py-3 btn-gradient text-white rounded-xl font-medium"
                 >
                   {editingGroup ? 'Aggiorna Gruppo' : 'Crea Gruppo'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Contact Management Modal */}
+      {showContactModal && selectedGroup && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold">Gestisci Contatti</h2>
+                <p className="text-gray-600">Gruppo: {selectedGroup.name}</p>
+              </div>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => setShowNewContactModal(true)}
+                  className="px-4 py-2 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-all duration-300 flex items-center space-x-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Nuovo Contatto</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowContactModal(false)
+                    setSelectedGroup(null)
+                    setContacts([])
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+
+            {contactsLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="text-sm text-gray-600 mb-4">
+                  Clicca sui contatti per aggiungerli o rimuoverli dal gruppo
+                </div>
+                
+                <div className="grid gap-3 max-h-96 overflow-y-auto">
+                  {contacts.map((contact) => (
+                    <div
+                      key={contact.id}
+                      onClick={() => toggleContactAssignment(contact.id, contact.is_assigned)}
+                      className={`p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 ${
+                        contact.is_assigned
+                          ? 'border-green-200 bg-green-50 hover:bg-green-100'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                            contact.is_assigned ? 'bg-green-500' : 'bg-gray-400'
+                          }`}>
+                            <User className="h-5 w-5 text-white" />
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">
+                              {contact.first_name} {contact.last_name}
+                            </div>
+                            <div className="text-sm text-gray-600 flex items-center space-x-1">
+                              <Mail className="h-3 w-3" />
+                              <span>{contact.email}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                          contact.is_assigned
+                            ? 'border-green-500 bg-green-500'
+                            : 'border-gray-300'
+                        }`}>
+                          {contact.is_assigned && <Check className="h-4 w-4 text-white" />}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {contacts.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                      <p>Nessun contatto disponibile</p>
+                      <p className="text-sm">Crea il primo contatto per iniziare</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* New Contact Modal */}
+      {showNewContactModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-6 z-60">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold">Nuovo Contatto</h3>
+              <button
+                onClick={() => {
+                  setShowNewContactModal(false)
+                  setNewContactData({ email: '', first_name: '', last_name: '' })
+                }}
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewContact} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Email *</label>
+                <input
+                  type="email"
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  value={newContactData.email}
+                  onChange={(e) => setNewContactData({ ...newContactData, email: e.target.value })}
+                  placeholder="esempio@email.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nome *</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  value={newContactData.first_name}
+                  onChange={(e) => setNewContactData({ ...newContactData, first_name: e.target.value })}
+                  placeholder="Mario"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Cognome *</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  value={newContactData.last_name}
+                  onChange={(e) => setNewContactData({ ...newContactData, last_name: e.target.value })}
+                  placeholder="Rossi"
+                />
+              </div>
+
+              <div className="flex items-center space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewContactModal(false)
+                    setNewContactData({ email: '', first_name: '', last_name: '' })
+                  }}
+                  className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+                >
+                  Annulla
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-medium hover:from-indigo-700 hover:to-purple-700 transition-all duration-300"
+                >
+                  Crea Contatto
                 </button>
               </div>
             </form>

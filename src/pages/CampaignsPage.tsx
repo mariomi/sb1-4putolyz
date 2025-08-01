@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Plus, Send, Eye, Calendar, Users, Mail, Trash2, Play, Pause, Edit2, X, CheckCircle, Loader2 } from 'lucide-react'
+import { Plus, Send, Eye, Calendar, Users, Mail, Trash2, Play, Edit2, X, CheckCircle, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { toast } from 'react-hot-toast'
-import { formatDate } from '../lib/utils'
+import { formatDate, formatDateTime } from '../lib/utils'
 
 interface Campaign {
   id: string
@@ -23,6 +23,16 @@ interface Campaign {
   profile_id: string
 }
 
+interface CampaignProgress {
+  campaignId: string
+  totalEmails: number
+  emailsSent: number
+  emailsPending: number
+  emailsProcessing: number
+  emailsFailed: number
+  progressPercentage: number
+}
+
 interface Group {
   id: string
   name: string
@@ -38,13 +48,37 @@ interface Sender {
   daily_limit: number
 }
 
+// Progress Bar Component
+interface ProgressBarProps {
+  progress: CampaignProgress
+}
+
+function CampaignProgressBar({ progress }: ProgressBarProps) {
+  const { progressPercentage } = progress
+  
+  return (
+    <div className="mt-3 px-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs font-medium text-gray-900">{progressPercentage}%</span>
+      </div>
+      <div className="w-full bg-gray-200 rounded-full h-2">
+        <div 
+          className="h-2 bg-blue-500 rounded-full transition-all duration-300"
+          style={{ width: `${progressPercentage}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 const initialFormData = {
   name: '',
   subject: '',
   html_content: '',
   send_duration_hours: 1,
   start_time_of_day: '09:00',
-  warm_up_days: 3,
+  warm_up_enabled: false,
+  warm_up_days: 7,
   emails_per_batch: 50,
   batch_interval_minutes: 15,
   selected_groups: [] as string[],
@@ -64,12 +98,25 @@ export function CampaignsPage() {
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null)
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null)
   const [formData, setFormData] = useState(initialFormData)
+  const [campaignProgress, setCampaignProgress] = useState<Map<string, CampaignProgress>>(new Map())
 
   useEffect(() => {
     if (user) {
       fetchData()
     }
   }, [user])
+
+  // Update campaign progress for active campaigns
+  useEffect(() => {
+    fetchCampaignProgress()
+    
+    // Set up interval to update progress every 30 seconds for active campaigns
+    const hasActiveCampaigns = campaigns.some(c => c.status === 'sending' || c.status === 'scheduled')
+    if (hasActiveCampaigns) {
+      const interval = setInterval(fetchCampaignProgress, 30000) // 30 seconds
+      return () => clearInterval(interval)
+    }
+  }, [campaigns])
 
   const fetchData = async () => {
     if (!campaigns.length) setLoading(true)
@@ -90,6 +137,53 @@ export function CampaignsPage() {
       toast.error('Errore nel caricamento dei dati')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchCampaignProgress = async () => {
+    try {
+      // Trova campagne attive che necessitano di progresso
+      const activeCampaigns = campaigns.filter(c => c.status === 'sending' || c.status === 'scheduled')
+      
+      if (activeCampaigns.length === 0) {
+        setCampaignProgress(new Map())
+        return
+      }
+
+      const progressData = new Map<string, CampaignProgress>()
+
+      for (const campaign of activeCampaigns) {
+        const { data: queueData, error } = await supabase
+          .from('campaign_queues')
+          .select('status')
+          .eq('campaign_id', campaign.id)
+
+        if (error) {
+          console.error(`Error fetching progress for campaign ${campaign.id}:`, error)
+          continue
+        }
+
+        const totalEmails = queueData?.length || 0
+        const emailsSent = queueData?.filter(q => q.status === 'sent').length || 0
+        const emailsPending = queueData?.filter(q => q.status === 'pending').length || 0
+        const emailsProcessing = queueData?.filter(q => q.status === 'processing').length || 0
+        const emailsFailed = queueData?.filter(q => q.status === 'failed').length || 0
+        const progressPercentage = totalEmails > 0 ? Math.round((emailsSent / totalEmails) * 100) : 0
+
+        progressData.set(campaign.id, {
+          campaignId: campaign.id,
+          totalEmails,
+          emailsSent,
+          emailsPending,
+          emailsProcessing,
+          emailsFailed,
+          progressPercentage
+        })
+      }
+
+      setCampaignProgress(progressData)
+    } catch (error: any) {
+      console.error('Error fetching campaign progress:', error)
     }
   }
 
@@ -135,7 +229,7 @@ export function CampaignsPage() {
       scheduled_at: null,
       send_duration_hours: handleNumericInput(String(formData.send_duration_hours), 1, 72, 1),
       start_time_of_day: formData.start_time_of_day,
-      warm_up_days: handleNumericInput(String(formData.warm_up_days), 1, 30, 3),
+      warm_up_days: formData.warm_up_enabled ? handleNumericInput(String(formData.warm_up_days), 1, 30, 7) : 0,
       emails_per_batch: handleNumericInput(String(formData.emails_per_batch), 10, 500, 50),
       batch_interval_minutes: handleNumericInput(String(formData.batch_interval_minutes), 1, 60, 15),
       start_date: formData.start_date,
@@ -188,12 +282,51 @@ export function CampaignsPage() {
     try {
       if (!user?.id) throw new Error('Utente non autenticato')
 
-      const scheduledAt = new Date()
-      scheduledAt.setMinutes(scheduledAt.getMinutes() + 1)
+      console.log('🔄 Programmazione campagna con generazione email in coda...')
 
-      const { error } = await supabase.from('campaigns').update({ scheduled_at: scheduledAt.toISOString(), status: 'scheduled' }).eq('id', campaignId).eq('profile_id', user.id).eq('status', 'draft')
-      if (error) throw error
-      toast.success('Campagna programmata! Sarà avviata dal backend.')
+      // 1. Prima recupera i dettagli della campagna per ottenere start_date e start_time_of_day
+      const { data: campaignData, error: fetchError } = await supabase
+        .from('campaigns')
+        .select('start_date, start_time_of_day')
+        .eq('id', campaignId)
+        .eq('profile_id', user.id)
+        .eq('status', 'draft')
+        .single()
+
+      if (fetchError) throw fetchError
+      if (!campaignData) throw new Error('Campagna non trovata')
+
+      // 2. Calcola la data/ora esatta di programmazione
+      const startDate = new Date(campaignData.start_date)
+      const [startHour, startMinute] = campaignData.start_time_of_day.split(':').map(Number)
+      
+      // Imposta l'orario ESATTO
+      startDate.setHours(startHour, startMinute, 0, 0)
+      
+      // Verifica che la data sia nel futuro
+      const now = new Date()
+      if (startDate <= now) {
+        throw new Error('La data e ora di programmazione devono essere nel futuro')
+      }
+
+      console.log(`📅 Programmazione per: ${startDate.toLocaleString()}`)
+
+      // 3. Aggiorna lo status a 'scheduled' e imposta scheduled_at alla data esatta
+      const { error: updateError } = await supabase
+        .from('campaigns')
+        .update({ 
+          scheduled_at: startDate.toISOString(), 
+          status: 'scheduled' 
+        })
+        .eq('id', campaignId)
+        .eq('profile_id', user.id)
+        .eq('status', 'draft')
+
+      if (updateError) throw updateError
+
+      // Le email verranno generate automaticamente al momento programmato
+
+      toast.success(`Campagna programmata! Partirà il ${startDate.toLocaleDateString()} alle ${startDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`)
       await fetchData()
     } catch (error: any) {
       console.error('Error scheduling campaign:', error)
@@ -203,46 +336,98 @@ export function CampaignsPage() {
     }
   }
 
+
+
   const handleStartCampaignNow = async (campaignId: string) => {
     setIsActionLoading(campaignId)
     try {
       if (!user?.id) throw new Error('Utente non autenticato')
 
-      const { data: campaign, error: fetchError } = await supabase.from('campaigns').select('status').eq('id', campaignId).eq('profile_id', user.id).single()
-      if (fetchError || !campaign) throw new Error('Campagna non trovata o permessi negati')
-      if (campaign.status !== 'draft') throw new Error('Solo le bozze possono essere avviate')
+      console.log('🚀 Avvio campagna IMMEDIATO con Edge Function...')
 
-      const { error } = await supabase.functions.invoke('start-campaign', {
-        body: { campaignId }
+      // Chiama l'Edge Function start-campaign per generare le email in coda IMMEDIATAMENTE
+      const { data: session } = await supabase.auth.getSession()
+      if (!session?.session?.access_token) {
+        throw new Error('Token di accesso non disponibile')
+      }
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/start-campaign`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.session.access_token}`
+        },
+        body: JSON.stringify({ 
+          campaignId,
+          startImmediately: true // Flag per indicare avvio immediato
+        })
       })
 
-      if (error) {
-        console.error('Error from start-campaign function:', error)
-        toast.error(error.message || "Errore nell'avvio della campagna")
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(`Errore Edge Function: ${errorData.error || response.statusText}`)
+      }
+
+      const result = await response.json()
+      console.log('✅ Risultato avvio immediato:', result)
+
+      toast.success('Campagna avviata! Le email verranno inviate immediatamente.')
+      await fetchData()
+    } catch (error: any) {
+      console.error('Error starting campaign now:', error)
+      toast.error(error.message || 'Errore nell\'avvio della campagna')
+    } finally {
+      setIsActionLoading(null)
+    }
+  }
+
+  const deleteAllCampaigns = async () => {
+    if (!confirm('⚠️ ATTENZIONE! Questa azione eliminerà TUTTE le campagne e i loro dati. Sei sicuro di voler continuare?')) return
+    
+    try {
+      toast.loading('Eliminando tutte le campagne...', { id: 'delete-all' })
+      
+      // Ottieni tutte le campagne
+      const { data: allCampaigns, error: fetchError } = await supabase
+        .from('campaigns')
+        .select('id')
+        .eq('profile_id', user?.id)
+      
+      if (fetchError) throw fetchError
+      
+      if (!allCampaigns || allCampaigns.length === 0) {
+        toast.success('Nessuna campagna da eliminare', { id: 'delete-all' })
         return
       }
       
-      toast.success('Campagna avviata con successo! Le email verranno inviate secondo la programmazione.')
+      const campaignIds = allCampaigns.map(c => c.id)
+      console.log(`🗑️ Eliminando ${campaignIds.length} campagne...`)
       
-      // Aggiorna immediatamente lo status locale per evitare il "flash" del pulsante
-      setCampaigns(prevCampaigns => 
-        prevCampaigns.map(c => 
-          c.id === campaignId 
-            ? { ...c, status: 'sending' as const }
-            : c
-        )
-      )
+      // Elimina tutte le relazioni per tutti i campaign IDs
+      await Promise.all([
+        supabase.from('campaign_queues').delete().in('campaign_id', campaignIds),
+        supabase.from('campaign_groups').delete().in('campaign_id', campaignIds),
+        supabase.from('campaign_senders').delete().in('campaign_id', campaignIds),
+        supabase.from('logs').delete().in('campaign_id', campaignIds)
+      ])
       
-      // Ricarica i dati dopo un breve delay per assicurarsi che tutto sia sincronizzato
-      setTimeout(() => {
-        fetchData()
-      }, 1000)
+      // Elimina tutte le campagne
+      const { error: deleteError } = await supabase
+        .from('campaigns')
+        .delete()
+        .in('id', campaignIds)
+      
+      if (deleteError) throw deleteError
+      
+      toast.success(`✅ Eliminate ${campaignIds.length} campagne con successo!`, { id: 'delete-all' })
+      
+      // Ricarica la pagina
+      setCampaigns([])
+      await fetchData()
       
     } catch (error: any) {
-      console.error('Error starting campaign:', error)
-      toast.error(error.message || "Errore nell'avvio della campagna")
-    } finally {
-      setIsActionLoading(null)
+      console.error('Error deleting all campaigns:', error)
+      toast.error('Errore nell\'eliminazione delle campagne: ' + error.message, { id: 'delete-all' })
     }
   }
 
@@ -266,6 +451,8 @@ export function CampaignsPage() {
     }
   }
 
+
+
   const startEditing = async (campaign: Campaign) => {
     setLoading(true)
     try {
@@ -278,6 +465,7 @@ export function CampaignsPage() {
       setEditingCampaign(campaign)
       setFormData({
         ...campaign,
+        warm_up_enabled: campaign.warm_up_days > 0,
         selected_groups: groupsRes.data.map(g => g.group_id),
         selected_senders: sendersRes.data.map(s => s.sender_id),
         start_date: campaign.start_date || ''
@@ -356,13 +544,24 @@ export function CampaignsPage() {
           </h1>
           <p className="text-gray-600 mt-2">Gestisci le tue campagne di email marketing</p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="btn-gradient text-white px-6 py-3 rounded-xl font-semibold flex items-center space-x-2 shadow-lg"
-        >
-          <Plus className="h-5 w-5" />
-          <span>Nuova Campagna</span>
-        </button>
+        <div className="flex items-center space-x-4">
+          {campaigns.length > 0 && (
+            <button
+              onClick={deleteAllCampaigns}
+              className="px-4 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-all duration-300 flex items-center space-x-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>Elimina Tutte</span>
+            </button>
+          )}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="btn-gradient text-white px-6 py-3 rounded-xl font-semibold flex items-center space-x-2 shadow-lg"
+          >
+            <Plus className="h-5 w-5" />
+            <span>Nuova Campagna</span>
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-6">
@@ -385,14 +584,28 @@ export function CampaignsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
               <div className="flex items-center space-x-2 text-sm text-gray-600"><Calendar className="h-4 w-4" /><span>Creata: {formatDate(campaign.created_at)}</span></div>
               <div className="flex items-center space-x-2 text-sm text-gray-600"><Users className="h-4 w-4" /><span>Durata: {campaign.send_duration_hours}h</span></div>
               <div className="flex items-center space-x-2 text-sm text-gray-600"><Mail className="h-4 w-4" /><span>Batch: {campaign.emails_per_batch} email</span></div>
+              <div className="flex items-center space-x-2 text-sm text-gray-600">
+                {campaign.warm_up_days > 0 ? (
+                  <>🔥<span>Warm-up: {campaign.warm_up_days} giorni</span></>
+                ) : (
+                  <>⚡<span>Modalità diretta</span></>
+                )}
+              </div>
             </div>
 
+            {/* Progress Bar for Active Campaigns */}
+            {(campaign.status === 'sending' || campaign.status === 'scheduled') && campaignProgress.has(campaign.id) && (
+              <CampaignProgressBar 
+                progress={campaignProgress.get(campaign.id)!} 
+              />
+            )}
+
             <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-500">{campaign.scheduled_at && <span>Programmata per: {formatDate(campaign.scheduled_at)}</span>}</div>
+              <div className="text-sm text-gray-500">{campaign.scheduled_at && <span>Programmata per: {formatDateTime(campaign.scheduled_at)}</span>}</div>
               <div className="flex items-center space-x-2">
                 {campaign.status === 'draft' && (
                   <>
@@ -410,6 +623,12 @@ export function CampaignsPage() {
                   <div className="px-4 py-2 bg-orange-100 text-orange-800 rounded-lg font-medium flex items-center space-x-2">
                     <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
                     <span>Campagna in corso</span>
+                  </div>
+                )}
+                {campaign.status === 'scheduled' && (
+                  <div className="px-4 py-2 bg-blue-100 text-blue-800 rounded-lg font-medium flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                    <span>Programmata</span>
                   </div>
                 )}
                 <button onClick={() => showCampaignDetails(campaign)} disabled={!!isActionLoading} className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-medium hover:from-blue-600 hover:to-blue-700 transition-all duration-300 flex items-center space-x-2 disabled:opacity-50"><Eye className="h-4 w-4" /><span>Dettagli</span></button>
@@ -454,9 +673,57 @@ export function CampaignsPage() {
                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Mittenti</label><div className="space-y-2 max-h-32 overflow-y-auto p-2 border rounded-lg">{senders.map((sender) => (<label key={sender.id} className="flex items-center"><input type="checkbox" className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" checked={formData.selected_senders.includes(sender.id)} onChange={(e) => { if (e.target.checked) { setFormData({ ...formData, selected_senders: [...formData.selected_senders, sender.id] }) } else { setFormData({ ...formData, selected_senders: formData.selected_senders.filter(id => id !== sender.id) }) } } } /><span className="ml-2 text-sm text-gray-900">{sender.display_name} ({sender.email_from})</span></label>))}</div></div>
               </div>
               <div className="mb-4">
-                <label htmlFor="warm_up_days" className="block text-sm font-medium text-gray-700 mb-2">Giorni di Warm-Up</label>
-                <input type="number" id="warm_up_days" name="warm_up_days" value={formData.warm_up_days} onChange={(e) => setFormData({ ...formData, warm_up_days: handleNumericInput(e.target.value, 1, 30, 3) })} min={1} max={30} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
-                <p className="text-sm text-gray-500 mt-1">Numero di giorni per aumentare gradualmente il volume di invio.</p>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-gray-700">Sistema Warm-Up</label>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={formData.warm_up_enabled} 
+                      onChange={(e) => setFormData({ ...formData, warm_up_enabled: e.target.checked })}
+                      className="sr-only peer" 
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    <span className="ml-3 text-sm text-gray-700">
+                      {formData.warm_up_enabled ? 'Abilitato' : 'Disabilitato'}
+                    </span>
+                  </label>
+                </div>
+                
+                {!formData.warm_up_enabled && (
+                  <div className="p-3 bg-gray-50 rounded-lg mb-3">
+                    <p className="text-sm text-gray-600">
+                      ⚡ <strong>Modalità diretta:</strong> Le email verranno inviate immediatamente al limite massimo configurato per ogni mittente, senza periodo di riscaldamento graduale.
+                    </p>
+                  </div>
+                )}
+
+                {formData.warm_up_enabled && (
+                  <>
+                    <div className="mb-3">
+                      <label htmlFor="warm_up_days" className="block text-sm font-medium text-gray-700 mb-2">Giorni di Warm-Up</label>
+                      <input 
+                        type="number" 
+                        id="warm_up_days" 
+                        name="warm_up_days" 
+                        value={formData.warm_up_days} 
+                        onChange={(e) => setFormData({ ...formData, warm_up_days: handleNumericInput(e.target.value, 1, 30, 7) })} 
+                        min={1} 
+                        max={30} 
+                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" 
+                      />
+                    </div>
+                    <div className="p-3 bg-blue-50 rounded-lg">
+                      <p className="text-sm text-blue-700 font-medium">🔥 Sistema di Warm-Up Automatico</p>
+                      <p className="text-sm text-blue-600 mt-1">
+                        Il sistema aumenterà gradualmente il limite di invio dal 10% al 100% durante il periodo specificato. 
+                        Questo aiuta a costruire la reputazione del dominio e migliorare la deliverability.
+                      </p>
+                      <p className="text-xs text-blue-500 mt-1">
+                        Esempio: Con {formData.warm_up_days} giorni e limite 500/giorno → Giorno 1: 50 email, Giorno {formData.warm_up_days}: 500 email
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Data di Inizio</label>
@@ -482,6 +749,15 @@ export function CampaignsPage() {
               <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-xl">
                 <div className="flex items-center justify-between mb-4"><div><h3 className="text-2xl font-bold text-gray-900">{selectedCampaign.name}</h3><p className="text-gray-600 mt-1">{selectedCampaign.subject}</p></div><span className={`px-4 py-2 rounded-full text-sm font-medium ${getStatusColor(selectedCampaign.status)}`}>{getStatusLabel(selectedCampaign.status)}</span></div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="text-center"><div className="text-2xl font-bold text-indigo-600">{selectedCampaign.send_duration_hours}h</div><div className="text-sm text-gray-600">Durata Invio</div></div><div className="text-center"><div className="text-2xl font-bold text-purple-600">{selectedCampaign.start_time_of_day}</div><div className="text-sm text-gray-600">Orario Inizio</div></div><div className="text-center"><div className="text-2xl font-bold text-green-600">{selectedCampaign.emails_per_batch}</div><div className="text-sm text-gray-600">Email per Batch</div></div><div className="text-center"><div className="text-2xl font-bold text-orange-600">{selectedCampaign.batch_interval_minutes}min</div><div className="text-sm text-gray-600">Intervallo</div></div></div>
+                
+                {/* Progress Bar in Modal for Active Campaigns */}
+                {(selectedCampaign.status === 'sending' || selectedCampaign.status === 'scheduled') && campaignProgress.has(selectedCampaign.id) && (
+                  <div className="mt-6 bg-white p-4 rounded-xl border border-gray-200">
+                    <CampaignProgressBar 
+                      progress={campaignProgress.get(selectedCampaign.id)!} 
+                    />
+                  </div>
+                )}
               </div>
               <div className="space-y-4">
                 <h4 className="text-lg font-semibold text-gray-900">Preview Email</h4>
@@ -489,12 +765,13 @@ export function CampaignsPage() {
                 {selectedCampaign.html_content ? (<div className="space-y-3"><div className="flex items-center justify-between"><h5 className="text-md font-semibold text-gray-800">Contenuto Renderizzato:</h5><button onClick={() => { const newWindow = window.open('', '_blank'); if (newWindow) { newWindow.document.write(selectedCampaign.html_content.replace(/{{first_name}}/g, 'Mario').replace(/{{last_name}}/g, 'Rossi').replace(/{{email}}/g, 'mario.rossi@email.com')); newWindow.document.close() } }} className="text-sm px-3 py-1 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors">Apri in nuova finestra</button></div><div className="bg-white border-2 border-gray-200 rounded-xl overflow-hidden"><div className="bg-gray-100 px-4 py-2 border-b text-sm text-gray-600">Preview con dati di esempio (Mario Rossi)</div><div className="p-4 max-h-96 overflow-y-auto"><div dangerouslySetInnerHTML={{ __html: selectedCampaign.html_content.replace(/{{first_name}}/g, 'Mario').replace(/{{last_name}}/g, 'Rossi').replace(/{{email}}/g, 'mario.rossi@email.com') }} /></div></div><details className="bg-gray-50 p-4 rounded-xl border"><summary className="text-sm font-medium text-gray-700 cursor-pointer hover:text-gray-900">Visualizza codice HTML</summary><div className="mt-3 max-h-48 overflow-y-auto"><pre className="text-xs text-gray-600 whitespace-pre-wrap font-mono">{selectedCampaign.html_content}</pre></div></details></div>) : (<div className="bg-yellow-50 border border-yellow-200 p-6 rounded-xl text-center"><div className="text-yellow-600 font-medium">⚠️ Nessun contenuto HTML</div><div className="text-sm text-yellow-600 mt-1">Aggiungi il contenuto HTML per vedere la preview</div></div>)}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div><h4 className="text-lg font-semibold text-gray-900 mb-3">Informazioni Temporali</h4><div className="space-y-2"><div className="flex justify-between"><span className="text-gray-600">Creata:</span><span className="font-medium">{formatDate(selectedCampaign.created_at)}</span></div><div className="flex justify-between"><span className="text-gray-600">Ultima modifica:</span><span className="font-medium">{formatDate(selectedCampaign.updated_at)}</span></div>{selectedCampaign.scheduled_at && (<div className="flex justify-between"><span className="text-gray-600">Programmata per:</span><span className="font-medium">{formatDate(selectedCampaign.scheduled_at)}</span></div>)}{selectedCampaign.start_date && (<div className="flex justify-between"><span className="text-gray-600">Data di Invio:</span><span className="font-medium">{formatDate(selectedCampaign.start_date)}</span></div>)}</div></div>
+                <div><h4 className="text-lg font-semibold text-gray-900 mb-3">Informazioni Temporali</h4><div className="space-y-2"><div className="flex justify-between"><span className="text-gray-600">Creata:</span><span className="font-medium">{formatDate(selectedCampaign.created_at)}</span></div><div className="flex justify-between"><span className="text-gray-600">Ultima modifica:</span><span className="font-medium">{formatDate(selectedCampaign.updated_at)}</span></div>{selectedCampaign.scheduled_at && (<div className="flex justify-between"><span className="text-gray-600">Programmata per:</span><span className="font-medium">{formatDateTime(selectedCampaign.scheduled_at)}</span></div>)}{selectedCampaign.start_date && (<div className="flex justify-between"><span className="text-gray-600">Data di Invio:</span><span className="font-medium">{formatDate(selectedCampaign.start_date)}</span></div>)}</div></div>
                 <div><h4 className="text-lg font-semibold text-gray-900 mb-3">Configurazione Avanzata</h4><div className="space-y-2"><div className="flex justify-between"><span className="text-gray-600">Giorni warm-up:</span><span className="font-medium">{selectedCampaign.warm_up_days}</span></div><div className="flex justify-between"><span className="text-gray-600">Batch size:</span><span className="font-medium">{selectedCampaign.emails_per_batch} email</span></div><div className="flex justify-between"><span className="text-gray-600">Intervallo batch:</span><span className="font-medium">{selectedCampaign.batch_interval_minutes} minuti</span></div></div></div>
               </div>
               <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
                 {selectedCampaign.status === 'draft' && (<><button onClick={() => { setShowDetailsModal(false); handleStartCampaignNow(selectedCampaign.id) }} className="px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl font-medium hover:from-green-700 hover:to-green-800 transition-all duration-300 flex items-center space-x-2 shadow-lg"><Play className="h-4 w-4" /><span>Avvia Ora</span></button><button onClick={() => { setShowDetailsModal(false); handleScheduleCampaign(selectedCampaign.id) }} className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-medium hover:from-blue-600 hover:to-blue-700 transition-all duration-300 flex items-center space-x-2 shadow-lg"><Calendar className="h-4 w-4" /><span>Programma</span></button><button onClick={() => { setShowDetailsModal(false); startEditing(selectedCampaign) }} className="px-6 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-medium hover:from-purple-600 hover:to-purple-700 transition-all duration-300 flex items-center space-x-2"><Edit2 className="h-4 w-4" /><span>Modifica Campagna</span></button></>)}
                 {(selectedCampaign.status === 'sending' || selectedCampaign.status === 'in_progress') && (<div className="px-6 py-3 bg-orange-100 text-orange-800 rounded-xl font-medium flex items-center space-x-2"><div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div><span>Campagna in corso di invio</span></div>)}
+                {selectedCampaign.status === 'scheduled' && (<div className="px-6 py-3 bg-blue-100 text-blue-800 rounded-xl font-medium flex items-center space-x-2"><div className="w-2 h-2 bg-blue-500 rounded-full"></div><span>Programmata</span></div>)}
                 {selectedCampaign.status === 'completed' && (<div className="px-6 py-3 bg-green-100 text-green-800 rounded-xl font-medium flex items-center space-x-2"><CheckCircle className="h-4 w-4" /><span>Campagna completata</span></div>)}
               </div>
             </div>

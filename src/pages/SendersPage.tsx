@@ -28,6 +28,34 @@ interface ResendDomain {
   region: string
 }
 
+// Helper function to calculate warm-up progress for display
+function calculateWarmUpInfo(sender: Sender, campaignWarmUpDays: number = 7) {
+  const { current_day, daily_limit } = sender
+  
+  // If we're past a typical warm-up period, assume completed
+  if (current_day > campaignWarmUpDays) {
+    return {
+      isWarmingUp: false,
+      effectiveLimit: daily_limit,
+      progressPercent: 100,
+      status: 'Completato'
+    }
+  }
+  
+  // During warm-up: gradual increase from 10% to 100%
+  const minPercent = 0.10
+  const progressPercent = current_day / campaignWarmUpDays
+  const currentPercent = minPercent + (1 - minPercent) * progressPercent
+  const effectiveLimit = Math.floor(daily_limit * currentPercent)
+  
+  return {
+    isWarmingUp: true,
+    effectiveLimit: Math.max(1, Math.min(effectiveLimit, daily_limit)),
+    progressPercent: Math.round(currentPercent * 100),
+    status: `Giorno ${current_day}/${campaignWarmUpDays}`
+  }
+}
+
 export function SendersPage() {
   const { user } = useAuth()
   const [senders, setSenders] = useState<Sender[]>([])
@@ -345,10 +373,24 @@ export function SendersPage() {
                 <div className="text-2xl font-bold text-green-900">{sender.emails_sent_today}</div>
               </div>
               
-              <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-4 rounded-xl">
-                <div className="text-sm font-medium text-purple-700">Warm-up Stage</div>
-                <div className="text-2xl font-bold text-purple-900">{sender.warm_up_stage}</div>
-              </div>
+              {(() => {
+                const warmUpInfo = calculateWarmUpInfo(sender)
+                return (
+                  <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-4 rounded-xl">
+                    <div className="text-sm font-medium text-purple-700">Warm-up Status</div>
+                    <div className="text-lg font-bold text-purple-900">{warmUpInfo.status}</div>
+                    <div className="text-sm text-purple-600">Limite: {warmUpInfo.effectiveLimit}/{sender.daily_limit}</div>
+                    {warmUpInfo.isWarmingUp && (
+                      <div className="mt-2 bg-purple-200 rounded-full h-2">
+                        <div 
+                          className="bg-purple-600 h-2 rounded-full transition-all duration-300" 
+                          style={{ width: `${warmUpInfo.progressPercent}%` }}
+                        ></div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
               
               <div className="bg-gradient-to-r from-orange-50 to-red-50 p-4 rounded-xl">
                 <div className="text-sm font-medium text-orange-700">Giorno Corrente</div>
