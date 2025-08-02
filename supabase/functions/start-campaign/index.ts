@@ -50,19 +50,25 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
   if (!selectedGroups.length) throw new Error('No recipient groups selected.');
 
   for (const group of selectedGroups) {
-    const { data: contactsInGroup, error: groupError, count } = await supabaseAdmin
+    const { data: contactsInGroup, error: groupError } = await supabaseAdmin
       .from('contact_groups')
-      .select('contact_id', { count: 'exact' })
+      .select('contact_id')
       .eq('group_id', group.group_id);
 
     if (groupError) throw new Error(`Error fetching contacts for group ${group.group_id}: ${groupError.message}`);
-    const totalContactsInGroup = count || 0;
-    if (!totalContactsInGroup) continue;
+    if (!contactsInGroup?.length) continue;
 
+    const totalContactsInGroup = contactsInGroup.length;
     const startIndex = Math.floor((group.percentage_start / 100) * totalContactsInGroup);
     const endIndex = Math.ceil((group.percentage_end / 100) * totalContactsInGroup);
 
-    contactsInGroup.slice(startIndex, endIndex).forEach((c) => finalContactIds.add(c.contact_id));
+    // Assicurati che gli indici siano entro i limiti
+    const validContacts = contactsInGroup.slice(
+      Math.max(0, startIndex),
+      Math.min(totalContactsInGroup, endIndex)
+    );
+
+    validContacts.forEach((c) => finalContactIds.add(c.contact_id));
   }
 
   const contactIds = Array.from(finalContactIds);
