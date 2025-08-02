@@ -262,16 +262,25 @@ async function updateSenderStats(supabase: any, emails: QueueEmail[]) {
 }
 
 async function checkAndCompleteCampaigns(supabase: any) {
-  console.log('\n🔍 Checking for completed campaigns...')
-  
+  console.log('\n🔍 Checking for completed campaigns...');
+
   const { data: activeCampaigns, error: campaignsError } = await supabase
     .from('campaigns')
-    .select('id, name, start_date, end_date') // <-- Ensure start_date and end_date are selected
-    .eq('status', 'sending')
+    .select('id, name, start_date, end_date')
+    .eq('status', 'sending');
 
-  if (campaignsError || !activeCampaigns) {
-    console.error('Error fetching active campaigns:', campaignsError)
-    return
+  if (campaignsError) {
+    if (campaignsError.code === '404') {
+      console.warn('No active campaigns found.');
+      return;
+    }
+    console.error('Error fetching active campaigns:', campaignsError);
+    return;
+  }
+
+  if (!activeCampaigns || activeCampaigns.length === 0) {
+    console.log('No active campaigns to process.');
+    return;
   }
 
   console.log(`Found ${activeCampaigns.length} active campaigns`)
@@ -281,15 +290,15 @@ async function checkAndCompleteCampaigns(supabase: any) {
     const endDate = new Date(campaign.end_date);
 
     if (now > endDate) {
-      console.log(`🏁 Completing campaign "${campaign.name}" as it has passed its end date.`)
-      
+      console.log(`🏁 Completing campaign "${campaign.name}" as it has passed its end date.`);
+
       await supabase
         .from('campaigns')
-        .update({ 
+        .update({
           status: 'completed',
           updated_at: new Date().toISOString()
         })
-        .eq('id', campaign.id)
+        .eq('id', campaign.id);
 
       await supabase
         .from('logs')
@@ -300,9 +309,9 @@ async function checkAndCompleteCampaigns(supabase: any) {
             completed_at: new Date().toISOString(),
             reason: 'End date reached'
           }
-        })
+        });
     } else {
-      console.log(`⏳ Campaign "${campaign.name}" is still within its active period`)
+      console.log(`⏳ Campaign "${campaign.name}" is still within its active period.`)
     }
   }
 }

@@ -125,24 +125,35 @@ export function CampaignsPage() {
   }, [campaigns])
 
   const fetchData = async () => {
-    if (!campaigns.length) setLoading(true)
+    if (!campaigns.length) setLoading(true);
     try {
       const [campaignsRes, groupsRes, sendersRes] = await Promise.all([
         supabase.from('campaigns').select('*').eq('profile_id', user?.id).order('created_at', { ascending: false }),
         supabase.from('groups').select('*').eq('profile_id', user?.id).order('name'),
         supabase.from('senders').select('*').eq('profile_id', user?.id).eq('is_active', true).order('domain')
-      ])
-      if (campaignsRes.error) throw campaignsRes.error
-      if (groupsRes.error) throw groupsRes.error
-      if (sendersRes.error) throw sendersRes.error
-      setCampaigns(campaignsRes.data || [])
-      setGroups(groupsRes.data || [])
-      setSenders(sendersRes.data || [])
+      ]);
+
+      if (campaignsRes.error) {
+        if (campaignsRes.error.code === '404') {
+          console.warn('No campaigns found.');
+          setCampaigns([]);
+        } else {
+          throw campaignsRes.error;
+        }
+      } else {
+        setCampaigns(campaignsRes.data || []);
+      }
+
+      if (groupsRes.error) throw groupsRes.error;
+      if (sendersRes.error) throw sendersRes.error;
+
+      setGroups(groupsRes.data || []);
+      setSenders(sendersRes.data || []);
     } catch (error: any) {
-      console.error('Error fetching data:', error)
-      toast.error('Errore nel caricamento dei dati')
+      console.error('Error fetching data:', error);
+      toast.error('Errore nel caricamento dei dati');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 

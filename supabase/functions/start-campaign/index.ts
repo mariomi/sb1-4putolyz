@@ -25,7 +25,14 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
       .eq('id', campaignId)
       .single();
 
-    if (campaignError || !campaign) {
+    if (campaignError) {
+      if (campaignError.code === '404') {
+        throw new Error(`Campaign with ID ${campaignId} not found.`);
+      }
+      throw campaignError;
+    }
+
+    if (!campaign) {
       throw new Error(`Campaign with ID ${campaignId} not found.`);
     }
 
@@ -169,12 +176,6 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
 
   } catch (error) {
     console.error(`[EXEC] Error during campaign execution for ${campaignId}:`, error);
-    // Tenta di ripristinare lo stato a 'draft' in caso di qualsiasi errore
-    await supabaseAdmin
-      .from('campaigns')
-      .update({ status: 'draft', updated_at: new Date().toISOString() })
-      .eq('id', campaignId)
-      .catch(restoreError => console.error('[EXEC] Critical: Failed to restore campaign status after error:', restoreError));
     throw error;
   }
 }
