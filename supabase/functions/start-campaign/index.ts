@@ -97,57 +97,54 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
 
     // 7. --- NUOVA LOGICA DI CALCOLO DELLA PIANIFICAZIONE ---
     const [startHour, startMinute] = campaign.start_time_of_day.split(':').map(Number);
-    
+
     const campaignStartDate = new Date(campaign.start_date);
     campaignStartDate.setUTCHours(startHour, startMinute, 0, 0);
 
     const campaignEndDate = new Date(campaign.end_date);
     campaignEndDate.setUTCHours(23, 59, 59, 999); // Ensure end date is set to the end of the day
 
-    // Determine the first batch time
-    const now = new Date();
-    const firstBatchTime = startImmediately ? now : (campaignStartDate > now ? campaignStartDate : now);
-
-    if (firstBatchTime > campaignEndDate) {
-      throw new Error('Calculated start time is after the campaign end date.');
-    }
-
-    const totalDurationMs = campaignEndDate.getTime() - firstBatchTime.getTime();
-    if (totalDurationMs <= 0) {
-      throw new Error('The campaign duration must be positive. Check your start/end dates.');
-    }
+    const numDays = Math.ceil((campaignEndDate.getTime() - campaignStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    if (numDays <= 0) throw new Error('Invalid campaign duration.');
 
     const totalEmails = contacts.length;
-    const batchSize = campaign.emails_per_batch;
-    const totalBatches = Math.ceil(totalEmails / batchSize);
+    const emailPerDay = Math.floor(totalEmails / numDays);
+    const emailRemainder = totalEmails % numDays;
 
-    // Calcola l'intervallo tra i batch per distribuirli uniformemente nella durata totale.
-    // Se c'è un solo batch, l'intervallo è 0.
-    const batchIntervalMs = totalBatches > 1 ? Math.floor(totalDurationMs / (totalBatches - 1)) : 0;
-    
+    const dailySendCount = Math.ceil(emailPerDay / campaign.emails_per_batch);
+    const batchSize = Math.floor(emailPerDay / dailySendCount);
+    const intervalBetweenSendsMs = Math.floor((24 * 60 * 60 * 1000) / dailySendCount); // in milliseconds
+
     // --- FINE NUOVA LOGICA ---
 
     // 8. Crea le voci nella tabella `campaign_queues`
     const queueEntries = [];
     let senderIndex = 0;
-    
-    for (let i = 0; i < totalBatches; i++) {
-        // Calcola l'orario di invio per questo specifico batch
-        const batchTime = new Date(firstBatchTime.getTime() + (i * batchIntervalMs));
-        const batchContacts = contacts.slice(i * batchSize, (i + 1) * batchSize);
+
+    for (let day = 0; day < numDays; day++) {
+      const emailsForDay = emailPerDay + (day >= numDays - emailRemainder ? 1 : 0); // Distribute remainder emails
+      const dayStartTime = new Date(campaignStartDate.getTime() + day * 24 * 60 * 60 * 1000);
+
+      for (let batch = 0; batch < dailySendCount; batch++) {
+        const batchTime = new Date(dayStartTime.getTime() + batch * intervalBetweenSendsMs);
+        const batchContacts = contacts.slice(
+          day * emailPerDay + batch * batchSize,
+          day * emailPerDay + (batch + 1) * batchSize
+        );
 
         for (const contact of batchContacts) {
-            const sender = senders[senderIndex % senders.length];
-            queueEntries.push({
-                campaign_id: campaignId,
-                contact_id: contact.id,
-                sender_id: sender.id,
-                status: 'pending',
-                scheduled_for: batchTime.toISOString(), // Salva l'orario calcolato
-                retry_count: 0
-            });
-            senderIndex++;
+          const sender = senders[senderIndex % senders.length];
+          queueEntries.push({
+            campaign_id: campaignId,
+            contact_id: contact.id,
+            sender_id: sender.id,
+            status: 'pending',
+            scheduled_for: batchTime.toISOString(),
+            retry_count: 0,
+          });
+          senderIndex++;
         }
+      }
     }
 
     // 9. Inserisci tutte le voci in coda con un'unica operazione

@@ -563,6 +563,42 @@ export function CampaignsPage() {
     });
   };
 
+  const calculateScheduleSummary = () => {
+    if (!formData.start_date || !formData.end_date) return null;
+
+    const startDate = new Date(formData.start_date);
+    const endDate = new Date(formData.end_date);
+    const numDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+    if (numDays <= 0) return null;
+
+    const totalEmails = formData.selected_groups.reduce((sum, group) => {
+      const groupContacts = groups.find((g) => g.id === group.group_id)?.contact_count || 0;
+      const groupEmails = Math.floor((group.percentage_end - group.percentage_start) / 100 * groupContacts);
+      return sum + groupEmails;
+    }, 0);
+
+    const emailPerDay = Math.floor(totalEmails / numDays);
+    const emailRemainder = totalEmails % numDays;
+
+    const dailySendCount = Math.ceil(emailPerDay / formData.emails_per_batch);
+    const batchSize = Math.floor(emailPerDay / dailySendCount);
+    const intervalBetweenSends = Math.floor((24 * 60) / dailySendCount); // in minutes
+
+    const intervalHours = Math.floor(intervalBetweenSends / 60);
+    const intervalMinutes = intervalBetweenSends % 60;
+
+    return {
+      numDays,
+      emailPerDay,
+      emailRemainder,
+      batchSize,
+      intervalHours,
+      intervalMinutes,
+      totalEmails,
+    };
+  };
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -852,10 +888,28 @@ export function CampaignsPage() {
                       onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
                     />
                   </div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-2">Email per Batch</label><input type="number" min="10" max="500" value={formData.emails_per_batch} onChange={(e) => setFormData({ ...formData, emails_per_batch: handleNumericInput(e.target.value, 10, 500, 50) })} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-2">Intervallo (min)</label><input type="number" min="1" max="60" value={formData.batch_interval_minutes} onChange={(e) => setFormData({ ...formData, batch_interval_minutes: handleNumericInput(e.target.value, 1, 60, 15) })} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" /></div>
                 </div>
               </div>
+
+              {/* Scheduling Summary */}
+              <div className="pt-4 border-t">
+                <h3 className="text-lg font-medium text-gray-800 mb-4">Riepilogo Pianificazione</h3>
+                {(() => {
+                  const summary = calculateScheduleSummary();
+                  if (!summary) return <p className="text-gray-600">Inserisci date valide per calcolare il riepilogo.</p>;
+
+                  return (
+                    <ul className="space-y-2 text-gray-700">
+                      <li><strong>Numero totale di giorni:</strong> {summary.numDays}</li>
+                      <li><strong>Email medie al giorno:</strong> {summary.emailPerDay} (con {summary.emailRemainder} email rimanenti)</li>
+                      <li><strong>Dimensione dei batch:</strong> {summary.batchSize} email per invio</li>
+                      <li><strong>Intervallo tra invii:</strong> {summary.intervalHours}h {summary.intervalMinutes}m</li>
+                      <li><strong>Totale email da inviare:</strong> {summary.totalEmails}</li>
+                    </ul>
+                  );
+                })()}
+              </div>
+
               <div className="flex items-center justify-end space-x-4 pt-4 border-t">
                 <button type="button" onClick={resetForm} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors">Annulla</button>
                 <button type="submit" disabled={isActionLoading === 'submit'} className="px-6 py-3 btn-gradient text-white rounded-xl font-medium flex items-center justify-center space-x-2 disabled:opacity-50">
