@@ -245,19 +245,22 @@ async function markEmailAsFailed(supabase: any, emailId: string, errorMessage: s
 
 async function updateSenderStats(supabase: any, emails: QueueEmail[]) {
   const senderCounts = emails.reduce((acc, email) => {
-    acc[email.sender_id] = (acc[email.sender_id] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
+    if (email.status === 'sent') {
+      acc[email.sender_id] = (acc[email.sender_id] || 0) + 1;
+    }
+    return acc;
+  }, {} as Record<string, number>);
 
   for (const [senderId, count] of Object.entries(senderCounts)) {
-    await supabase
-      .from('senders')
-      .update({ 
-        emails_sent_today: count,
-        last_sent_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', senderId)
+    if (count > 0) {
+      const { error } = await supabase.rpc('increment_sender_emails_sent', {
+        sender_id_in: senderId,
+        increment_by: count,
+      });
+      if (error) {
+        console.error(`Error updating stats for sender ${senderId}:`, error);
+      }
+    }
   }
 }
 
