@@ -589,18 +589,21 @@ export function CampaignsPage() {
 
     if (numDays <= 0) return null;
 
+    // Calculate total emails based on group percentages
     const totalEmails = formData.selected_groups.reduce((sum, group) => {
       const groupContacts = groups.find((g) => g.id === group.group_id)?.contact_count || 0;
       const groupEmails = Math.floor((group.percentage_end - group.percentage_start) / 100 * groupContacts);
       return sum + groupEmails;
     }, 0);
 
+    if (totalEmails === 0) return null; // No emails to send
+
     const emailPerDay = Math.floor(totalEmails / numDays);
     const emailRemainder = totalEmails % numDays;
 
     const dailySendCount = Math.ceil(emailPerDay / formData.emails_per_batch);
-    const batchSize = Math.floor(emailPerDay / dailySendCount);
-    const intervalBetweenSends = Math.floor((24 * 60) / dailySendCount); // in minutes
+    const batchSize = dailySendCount > 0 ? Math.floor(emailPerDay / dailySendCount) : 0;
+    const intervalBetweenSends = dailySendCount > 0 ? Math.floor((24 * 60) / dailySendCount) : 0; // in minutes
 
     const intervalHours = Math.floor(intervalBetweenSends / 60);
     const intervalMinutes = intervalBetweenSends % 60;
