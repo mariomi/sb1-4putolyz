@@ -1,7 +1,7 @@
 // percorso: supabase/functions/start-campaign/index.ts
 // VERSIONE FINALE CON LOGICA start_date e end_date
 
-import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // Header CORS per permettere le chiamate dal frontend
 const corsHeaders = {
@@ -14,68 +14,44 @@ const corsHeaders = {
  * Calcola la pianificazione degli invii in modo dinamico basandosi
  * su una data di inizio e una data di fine.
  */
-async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId: string, startImmediately: boolean = false) {
+async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId: string) {
   console.log(`[EXEC] Starting campaign execution for ID: ${campaignId}`);
 
   try {
     // 1. Ottieni i dettagli della campagna dal database
     const { data: campaign, error: campaignError } = await supabaseAdmin
       .from('campaigns')
-      .select('*') // Seleziona tutte le colonne per avere start_date, end_date, etc.
+      .select('*')
       .eq('id', campaignId)
+      .eq('status', 'draft')
       .single();
 
-    if (campaignError) {
-      if (campaignError.code === '404') {
-        throw new Error(`Campaign with ID ${campaignId} not found.`);
-      }
-      throw campaignError;
-    }
-
-    if (!campaign) {
-      throw new Error(`Campaign with ID ${campaignId} not found.`);
-    }
-
-    // Controlla che la campagna sia in uno stato valido per essere avviata
-    if (campaign.status !== 'draft' && campaign.status !== 'sending') { // 'sending' per riavviare
-      throw new Error(`Campaign is not in a startable status. Current status: ${campaign.status}`);
-    }
-
-    // Controlla che le date necessarie siano presenti
-    if (!campaign.start_date || !campaign.end_date) {
-        throw new Error('Start date or End date is missing for this campaign.');
-    }
+    if (campaignError) throw campaignError;
+    if (!campaign.start_date || !campaign.end_date) throw new Error('Missing start_date or end_date.');
 
     // 2. Ottieni i gruppi e i mittenti associati alla campagna (logica invariata)
     const [groupsRes, sendersRes] = await Promise.all([
       supabaseAdmin.from('campaign_groups').select('group_id').eq('campaign_id', campaignId),
-      supabaseAdmin.from('campaign_senders').select('sender_id').eq('campaign_id', campaignId)
+      supabaseAdmin.from('campaign_senders').select('sender_id').eq('campaign_id', campaignId),
     ]);
 
-    if (groupsRes.error || sendersRes.error) throw new Error('Failed to fetch campaign groups or senders.');
-    const groupIds = groupsRes.data.map(g => g.group_id);
-    const senderIds = sendersRes.data.map(s => s.sender_id);
-    if (groupIds.length === 0) throw new Error('No groups associated with this campaign.');
-    if (senderIds.length === 0) throw new Error('No senders associated with this campaign.');
+    if (groupsRes.error || sendersRes.error) throw new Error('Failed to fetch groups or senders.');
+    const groupIds = groupsRes.data.map((g) => g.group_id);
+    const senderIds = sendersRes.data.map((s) => s.sender_id);
 
-    // 3. Ottieni tutti i contatti attivi dai gruppi con percentuali
-    const contactIds: string[] = [];
-    for (const group of campaign.selected_groups) {
-      const { data: groupContacts, error: groupContactsError } = await supabaseAdmin
+    if (!groupIds.length || !senderIds.length) throw new Error('No groups or senders associated with this campaign.');
+
+    // 3. Ottieni tutti i contatti attivi dai gruppi (logica semplificata)
+    const contactIds = [];
+    for (const groupId of groupIds) {
+      const { data: groupContacts, error: groupError } = await supabaseAdmin
         .from('contact_groups')
         .select('contact_id')
-        .eq('group_id', group.group_id);
+        .eq('group_id', groupId);
 
-      if (groupContactsError) throw new Error('Failed to fetch contacts from groups.');
-
-      const totalContacts = groupContacts?.length || 0;
-      const startIndex = Math.floor((group.percentage_start / 100) * totalContacts);
-      const endIndex = Math.ceil((group.percentage_end / 100) * totalContacts);
-
-      contactIds.push(...groupContacts.slice(startIndex, endIndex).map((gc) => gc.contact_id));
+      if (groupError) throw groupError;
+      contactIds.push(...groupContacts.map((gc) => gc.contact_id));
     }
-
-    if (contactIds.length === 0) throw new Error('No contacts found in the selected groups with the specified percentages.');
 
     const { data: contacts, error: contactsError } = await supabaseAdmin
       .from('contacts')
@@ -83,99 +59,54 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
       .in('id', contactIds)
       .eq('is_active', true);
 
-    if (contactsError) throw new Error('Failed to fetch active contacts.');
-    if (!contacts || contacts.length === 0) throw new Error('No active contacts found for this campaign.');
+    if (contactsError || !contacts?.length) throw new Error('No active contacts found.');
 
     // 4. Ottieni i dettagli dei mittenti attivi (logica invariata)
-    const { data: senders, error: sendersDataError } = await supabaseAdmin.from('senders').select('*').in('id', senderIds).eq('is_active', true);
-    if (sendersDataError || !senders || senders.length === 0) throw new Error('No active senders found for this campaign.');
+    const { data: senders, error: sendersError } = await supabaseAdmin
+      .from('senders')
+      .select('*')
+      .in('id', senderIds)
+      .eq('is_active', true);
 
-    console.log(`[EXEC] Found ${contacts.length} contacts and ${senders.length} senders.`);
+    if (sendersError || !senders?.length) throw new Error('No active senders found.');
 
-    // 5. Aggiorna lo status della campagna a 'sending'
-    await supabaseAdmin.from('campaigns').update({ status: 'sending', updated_at: new Date().toISOString() }).eq('id', campaignId);
-    console.log(`[EXEC] Campaign status updated to 'sending'.`);
-    
-    // 6. Se la campagna era già in 'sending', pulisce la coda precedente per riprogrammarla
-    if (campaign.status === 'sending') {
-      console.log(`[EXEC] Campaign was already in 'sending' status. Deleting existing queue entries for re-scheduling...`);
-      await supabaseAdmin.from('campaign_queues').delete().eq('campaign_id', campaignId);
-    }
+    // 5. Pulisci la coda precedente della campagna
+    await supabaseAdmin.from('campaign_queues').delete().eq('campaign_id', campaignId);
 
-    // 7. --- NUOVA LOGICA DI CALCOLO DELLA PIANIFICAZIONE ---
-    const [startHour, startMinute] = campaign.start_time_of_day.split(':').map(Number);
+    // 6. Calcola la pianificazione
+    const startDate = new Date(campaign.start_date);
+    const endDate = new Date(campaign.end_date);
+    const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    const intervalMs = (endDate.getTime() - startDate.getTime()) / contacts.length;
 
-    const campaignStartDate = new Date(campaign.start_date);
-    campaignStartDate.setUTCHours(startHour, startMinute, 0, 0);
-
-    const campaignEndDate = new Date(campaign.end_date);
-    campaignEndDate.setUTCHours(23, 59, 59, 999); // Ensure end date is set to the end of the day
-
-    const numDays = Math.ceil((campaignEndDate.getTime() - campaignStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-    if (numDays <= 0) throw new Error('Invalid campaign duration.');
-
-    const totalEmails = contacts.length;
-    const emailPerDay = Math.floor(totalEmails / numDays);
-    const emailRemainder = totalEmails % numDays;
-
-    const dailySendCount = Math.ceil(emailPerDay / campaign.emails_per_batch);
-    const batchSize = Math.floor(emailPerDay / dailySendCount);
-    const intervalBetweenSendsMs = Math.floor((24 * 60 * 60 * 1000) / dailySendCount); // in milliseconds
-
-    // --- FINE NUOVA LOGICA ---
-
-    // 8. Crea le voci nella tabella `campaign_queues`
     const queueEntries = [];
     let senderIndex = 0;
 
-    for (let day = 0; day < numDays; day++) {
-      const emailsForDay = emailPerDay + (day >= numDays - emailRemainder ? 1 : 0); // Distribute remainder emails
-      const dayStartTime = new Date(campaignStartDate.getTime() + day * 24 * 60 * 60 * 1000);
+    contacts.forEach((contact, i) => {
+      const scheduledFor = new Date(startDate.getTime() + i * intervalMs).toISOString();
+      const sender = senders[senderIndex % senders.length];
+      senderIndex++;
 
-      for (let batch = 0; batch < dailySendCount; batch++) {
-        const batchTime = new Date(dayStartTime.getTime() + batch * intervalBetweenSendsMs);
-        const batchContacts = contacts.slice(
-          day * emailPerDay + batch * batchSize,
-          day * emailPerDay + (batch + 1) * batchSize
-        );
-
-        for (const contact of batchContacts) {
-          const sender = senders[senderIndex % senders.length];
-          queueEntries.push({
-            campaign_id: campaignId,
-            contact_id: contact.id,
-            sender_id: sender.id,
-            status: 'pending',
-            scheduled_for: batchTime.toISOString(),
-            retry_count: 0,
-          });
-          senderIndex++;
-        }
-      }
-    }
-
-    // 9. Inserisci tutte le voci in coda con un'unica operazione
-    const { error: queueError } = await supabaseAdmin.from('campaign_queues').insert(queueEntries);
-    if (queueError) {
-      // Se l'inserimento fallisce, riporta la campagna allo stato 'draft'
-      await supabaseAdmin.from('campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', campaignId);
-      throw new Error(`Failed to create queue entries: ${queueError.message}`);
-    }
-
-    const lastBatchTime = totalBatches > 0 ? new Date(firstBatchTime.getTime() + ((totalBatches - 1) * batchIntervalMs)) : firstBatchTime;
-
-    console.log(`[EXEC] Created ${queueEntries.length} queue entries for campaign ${campaignId}.`);
-    console.log(`[EXEC] Campaign Details:`, {
-        total_contacts: contacts.length,
-        total_senders: senders.length,
-        total_batches: totalBatches,
-        batch_interval_minutes: Math.round(batchIntervalMs / 60000),
-        first_batch_time: firstBatchTime.toISOString(),
-        last_batch_time: lastBatchTime.toISOString()
+      queueEntries.push({
+        campaign_id: campaignId,
+        contact_id: contact.id,
+        sender_id: sender.id,
+        status: 'pending',
+        scheduled_for: scheduledFor,
+        retry_count: 0,
+      });
     });
 
+    // 7. Inserisci tutte le voci in coda con un'unica operazione
+    const { error: queueError } = await supabaseAdmin.from('campaign_queues').insert(queueEntries);
+    if (queueError) throw queueError;
+
+    // 8. Aggiorna lo stato della campagna
+    await supabaseAdmin.from('campaigns').update({ status: 'sending' }).eq('id', campaignId);
+
+    console.log(`[EXEC] Campaign ${campaignId} scheduled successfully.`);
   } catch (error) {
-    console.error(`[EXEC] Error during campaign execution for ${campaignId}:`, error);
+    console.error(`[EXEC] Error during campaign execution:`, error);
     throw error;
   }
 }
@@ -188,20 +119,19 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { campaignId, startImmediately } = await req.json();
+    const { campaignId } = await req.json();
     if (!campaignId) {
       throw new Error('Missing campaignId in request body');
     }
 
     // Crea un client Supabase con privilegi di amministratore
     const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-      { auth: { autoRefreshToken: false, persistSession: false } }
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
     // Esegui la logica principale
-    await startCampaignExecution(supabaseAdmin, campaignId, startImmediately);
+    await startCampaignExecution(supabaseAdmin, campaignId);
 
     // Rispondi con successo
     return new Response(JSON.stringify({ 

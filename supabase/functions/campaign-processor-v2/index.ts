@@ -315,3 +315,38 @@ async function checkAndCompleteCampaigns(supabase: any) {
     }
   }
 }
+
+async function processEmails(supabase: any, resend: any) {
+  const now = new Date().toISOString();
+  const { data: emails, error: emailsError } = await supabase
+    .from('campaign_queues')
+    .select(`
+      id, campaign_id, contact_id, sender_id, scheduled_for, status,
+      contact:contacts(email, first_name, last_name),
+      sender:senders(email_from, display_name),
+      campaign:campaigns(subject, html_content)
+    `)
+    .eq('status', 'pending')
+    .lte('scheduled_for', now)
+    .limit(50);
+
+  if (emailsError) throw emailsError;
+
+  for (const email of emails) {
+    try {
+      await resend.emails.send({
+        from: `${email.sender.display_name} <${email.sender.email_from}>`,
+        to: [email.contact.email],
+        subject: email.campaign.subject,
+        html: email.campaign.html_content
+          .replace(/{{first_name}}/g, email.contact.first_name)
+          .replace(/{{last_name}}/g, email.contact.last_name)
+          .replace(/{{email}}/g, email.contact.email),
+      });
+
+      await supabase.from('campaign_queues').update({ status: 'sent' }).eq('id', email.id);
+    } catch (error) {
+      await supabase.from('campaign_queues').update({ status: 'failed', error_message: error.message }).eq('id', email.id);
+    }
+  }
+}
