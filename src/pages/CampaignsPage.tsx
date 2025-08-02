@@ -373,45 +373,51 @@ export function CampaignsPage() {
 
 
   const handleStartCampaignNow = async (campaignId: string) => {
-    setIsActionLoading(campaignId)
+    setIsActionLoading(campaignId);
     try {
-      if (!user?.id) throw new Error('Utente non autenticato')
+      if (!user?.id) throw new Error('Utente non autenticato');
 
-      console.log('🚀 Avvio campagna IMMEDIATO con Edge Function...')
+      console.log('🚀 Avvio campagna IMMEDIATO con Edge Function...');
 
-      // Chiama l'Edge Function start-campaign per generare le email in coda IMMEDIATAMENTE
-      const { data: session } = await supabase.auth.getSession()
-      if (!session?.session?.access_token) {
-        throw new Error('Token di accesso non disponibile')
+      // Verifica che l'URL di Supabase sia configurato correttamente
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error('VITE_SUPABASE_URL non è configurato correttamente.');
       }
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/start-campaign`, {
+      // Chiama l'Edge Function start-campaign per generare le email in coda IMMEDIATAMENTE
+      const { data: session } = await supabase.auth.getSession();
+      if (!session?.session?.access_token) {
+        throw new Error('Token di accesso non disponibile');
+      }
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/start-campaign`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.session.access_token}`
+          'Authorization': `Bearer ${session.session.access_token}`,
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           campaignId,
-          startImmediately: true // Flag per indicare avvio immediato
-        })
-      })
+          startImmediately: true, // Flag per indicare avvio immediato
+        }),
+      });
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(`Errore Edge Function: ${errorData.error || response.statusText}`)
+        const errorData = await response.json();
+        throw new Error(`Errore Edge Function: ${errorData.error || response.statusText}`);
       }
 
-      const result = await response.json()
-      console.log('✅ Risultato avvio immediato:', result)
+      const result = await response.json();
+      console.log('✅ Risultato avvio immediato:', result);
 
-      toast.success('Campagna avviata! Le email verranno inviate immediatamente.')
-      await fetchData()
+      toast.success('Campagna avviata! Le email verranno inviate immediatamente.');
+      await fetchData();
     } catch (error: any) {
-      console.error('Error starting campaign now:', error)
-      toast.error(error.message || 'Errore nell\'avvio della campagna')
+      console.error('Error starting campaign now:', error);
+      toast.error(error.message || 'Errore nell\'avvio della campagna');
     } finally {
-      setIsActionLoading(null)
+      setIsActionLoading(null);
     }
   }
 
