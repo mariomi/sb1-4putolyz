@@ -575,7 +575,7 @@ export function CampaignsPage() {
       }
       return {
         ...prev,
-        selected_groups: [...prev.selected_groups, { group_id: groupId, percentage_start: 0, percentage_end: 100 }]
+        selected_groups: [...prev.selected_groups, { group_id: groupId }], // Default to selecting the entire group
       };
     });
   };
