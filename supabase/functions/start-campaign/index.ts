@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
       error: error.message 
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400, // Usa 400 per errori di input, 500 per errori interni
+      status: 400,
     });
   }
 });
