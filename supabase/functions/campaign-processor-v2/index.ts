@@ -266,7 +266,7 @@ async function checkAndCompleteCampaigns(supabase: any) {
   
   const { data: activeCampaigns, error: campaignsError } = await supabase
     .from('campaigns')
-    .select('id, name')
+    .select('id, name, start_date, end_date') // <-- Ensure start_date and end_date are selected
     .eq('status', 'sending')
 
   if (campaignsError || !activeCampaigns) {
@@ -277,48 +277,11 @@ async function checkAndCompleteCampaigns(supabase: any) {
   console.log(`Found ${activeCampaigns.length} active campaigns`)
 
   for (const campaign of activeCampaigns) {
-    // Conta TUTTE le email pending (immediate + future)
-    const { count: pendingCount, error: pendingError } = await supabase
-      .from('campaign_queues')
-      .select('*', { count: 'exact', head: true })
-      .eq('campaign_id', campaign.id)
-      .eq('status', 'pending')
+    const now = new Date();
+    const endDate = new Date(campaign.end_date);
 
-    // Conta quelle in processing
-    const { count: processingCount, error: processingError } = await supabase
-      .from('campaign_queues')
-      .select('*', { count: 'exact', head: true })
-      .eq('campaign_id', campaign.id)
-      .eq('status', 'processing')
-
-    if (pendingError || processingError) {
-      console.error(`Error checking campaign ${campaign.id}:`, { pendingError, processingError })
-      continue
-    }
-
-    const totalToProcess = (pendingCount || 0) + (processingCount || 0)
-
-    // Per debug
-    const { count: sentCount } = await supabase
-      .from('campaign_queues')
-      .select('*', { count: 'exact', head: true })
-      .eq('campaign_id', campaign.id)
-      .eq('status', 'sent')
-
-    const { count: totalCount } = await supabase
-      .from('campaign_queues')
-      .select('*', { count: 'exact', head: true })
-      .eq('campaign_id', campaign.id)
-
-    console.log(`📊 Campaign "${campaign.name}":`)
-    console.log(`  Total emails: ${totalCount || 0}`)
-    console.log(`  Sent: ${sentCount || 0}`)
-    console.log(`  Pending: ${pendingCount || 0}`)
-    console.log(`  Processing: ${processingCount || 0}`)
-    console.log(`  Still to process: ${totalToProcess}`)
-
-    if (totalToProcess === 0) {
-      console.log(`🏁 Completing campaign "${campaign.name}"`)
+    if (now > endDate) {
+      console.log(`🏁 Completing campaign "${campaign.name}" as it has passed its end date.`)
       
       await supabase
         .from('campaigns')
@@ -335,12 +298,11 @@ async function checkAndCompleteCampaigns(supabase: any) {
           event_type: 'completed',
           event_data: {
             completed_at: new Date().toISOString(),
-            total_emails: totalCount || 0,
-            sent_emails: sentCount || 0
+            reason: 'End date reached'
           }
         })
     } else {
-      console.log(`⏳ Campaign "${campaign.name}" still has emails to process`)
+      console.log(`⏳ Campaign "${campaign.name}" is still within its active period`)
     }
   }
 }

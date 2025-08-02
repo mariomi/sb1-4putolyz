@@ -84,16 +84,16 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
     campaignStartDate.setUTCHours(startHour, startMinute, 0, 0);
 
     const campaignEndDate = new Date(campaign.end_date);
-    campaignEndDate.setUTCHours(23, 59, 59, 999); // Imposta l'orario alla fine del giorno di fine
+    campaignEndDate.setUTCHours(23, 59, 59, 999); // Ensure end date is set to the end of the day
 
-    // Determina l'orario di partenza del primo batch
+    // Determine the first batch time
     const now = new Date();
     const firstBatchTime = startImmediately ? now : (campaignStartDate > now ? campaignStartDate : now);
 
     if (firstBatchTime > campaignEndDate) {
       throw new Error('Calculated start time is after the campaign end date.');
     }
-    
+
     const totalDurationMs = campaignEndDate.getTime() - firstBatchTime.getTime();
     if (totalDurationMs <= 0) {
       throw new Error('The campaign duration must be positive. Check your start/end dates.');

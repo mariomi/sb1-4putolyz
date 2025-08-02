@@ -12,7 +12,6 @@ interface Campaign {
   html_content: string
   status: 'draft' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'paused' | 'sending'
   scheduled_at: string | null
-  send_duration_hours: number
   start_time_of_day: string
   warm_up_days: number
   emails_per_batch: number
@@ -76,7 +75,6 @@ const initialFormData = {
   name: '',
   subject: '',
   html_content: '',
-  send_duration_hours: 1,
   start_time_of_day: '09:00',
   warm_up_enabled: false,
   warm_up_days: 7,
@@ -214,6 +212,7 @@ export function CampaignsPage() {
       setIsActionLoading(null)
       return
     }
+
     const startDate = new Date(formData.start_date)
     const endDate = new Date(formData.end_date)
     const today = new Date()
@@ -235,13 +234,12 @@ export function CampaignsPage() {
       html_content: formData.html_content,
       status: 'draft' as const,
       scheduled_at: null,
-      send_duration_hours: handleNumericInput(String(formData.send_duration_hours), 1, 72, 1),
       start_time_of_day: formData.start_time_of_day,
       warm_up_days: formData.warm_up_enabled ? handleNumericInput(String(formData.warm_up_days), 1, 30, 7) : 0,
       emails_per_batch: handleNumericInput(String(formData.emails_per_batch), 10, 500, 50),
       batch_interval_minutes: handleNumericInput(String(formData.batch_interval_minutes), 1, 60, 15),
       start_date: formData.start_date,
-      end_date: formData.end_date, // <-- Save end_date
+      end_date: formData.end_date,
       profile_id: user?.id
     }
 
@@ -539,6 +537,7 @@ export function CampaignsPage() {
                 <div className="h-4 bg-gray-200 rounded w-1/2"></div>
               </div>
             ))}
+
           </div>
         </div>
       </div>
@@ -656,6 +655,7 @@ export function CampaignsPage() {
             </div>
           </div>
         ))}
+
         {campaigns.length === 0 && (
           <div className="text-center py-12"><Send className="h-16 w-16 text-gray-300 mx-auto mb-4" /><h3 className="text-lg font-medium text-gray-900 mb-2">Nessuna campagna</h3><p className="text-gray-600 mb-6">Inizia creando la tua prima campagna email</p><button onClick={() => setShowCreateModal(true)} className="btn-gradient text-white px-6 py-3 rounded-xl font-semibold">Crea Prima Campagna</button></div>
         )}
@@ -681,7 +681,6 @@ export function CampaignsPage() {
                 <textarea rows={8} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" value={formData.html_content} onChange={(e) => setFormData({ ...formData, html_content: e.target.value })} placeholder="<html><body><h1>Ciao {{first_name}}!</h1><p>Il tuo contenuto qui...</p></body></html>" />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-2">Durata Invio (ore)</label><input type="number" min="1" max="72" value={formData.send_duration_hours} onChange={(e) => setFormData({ ...formData, send_duration_hours: handleNumericInput(e.target.value, 1, 72, 1) })} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" /></div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Orario Inizio</label><input type="time" className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" value={formData.start_time_of_day} onChange={(e) => setFormData({ ...formData, start_time_of_day: e.target.value })} /></div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Email per Batch</label><input type="number" min="10" max="500" value={formData.emails_per_batch} onChange={(e) => setFormData({ ...formData, emails_per_batch: handleNumericInput(e.target.value, 10, 500, 50) })} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" /></div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Intervallo (min)</label><input type="number" min="1" max="60" value={formData.batch_interval_minutes} onChange={(e) => setFormData({ ...formData, batch_interval_minutes: handleNumericInput(e.target.value, 1, 60, 15) })} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" /></div>
@@ -790,9 +789,8 @@ export function CampaignsPage() {
               <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-xl">
                 <div className="flex items-center justify-between mb-4"><div><h3 className="text-2xl font-bold text-gray-900">{selectedCampaign.name}</h3><p className="text-gray-600 mt-1">{selectedCampaign.subject}</p></div><span className={`px-4 py-2 rounded-full text-sm font-medium ${getStatusColor(selectedCampaign.status)}`}>{getStatusLabel(selectedCampaign.status)}</span></div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center"><div className="text-2xl font-bold text-indigo-600">{selectedCampaign.send_duration_hours}h</div><div className="text-sm text-gray-600">Durata Invio</div></div>
-                  <div className="text-center"><div className="text-2xl font-bold text-purple-600">{selectedCampaign.start_time_of_day}</div><div className="text-sm text-gray-600">Orario Inizio</div></div>
-                  <div className="text-center"><div className="text-2xl font-bold text-green-600">{selectedCampaign.emails_per_batch}</div><div className="text-sm text-gray-600">Email per Batch</div></div>
+                  <div className="text-center"><div className="text-2xl font-bold text-indigo-600">{selectedCampaign.start_time_of_day}</div><div className="text-sm text-gray-600">Orario Inizio</div></div>
+                  <div className="text-center"><div className="text-2xl font-bold text-purple-600">{selectedCampaign.emails_per_batch}</div><div className="text-sm text-gray-600">Email per Batch</div></div>
                   <div className="text-center"><div className="text-2xl font-bold text-orange-600">{selectedCampaign.batch_interval_minutes}min</div><div className="text-sm text-gray-600">Intervallo</div></div>
                 </div>
                 
