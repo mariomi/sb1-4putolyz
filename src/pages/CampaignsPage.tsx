@@ -37,7 +37,7 @@ interface Group {
   id: string;
   name: string;
   description: string;
-  contact_count: number; // <-- Added contact_count to the Group interface
+  contact_count?: number; // Opzionale, verrà calcolato dinamicamente
 }
 
 interface Sender {
@@ -107,6 +107,7 @@ export function CampaignsPage() {
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null)
   const [formData, setFormData] = useState(initialFormData)
   const [campaignProgress, setCampaignProgress] = useState<Map<string, CampaignProgress>>(new Map())
+  const [groupContactCounts, setGroupContactCounts] = useState<Map<string, number>>(new Map())
 
   useEffect(() => {
     if (user) {
@@ -133,7 +134,7 @@ export function CampaignsPage() {
         supabase.from('campaigns').select('*').eq('profile_id', user?.id).order('created_at', { ascending: false }),
         supabase
           .from('groups')
-          .select('id, name, description, contact_count') // Ensure `contact_count` exists in the database schema
+          .select('id, name, description') // Rimuovi contact_count statico
           .eq('profile_id', user?.id) // Ensure `profile_id` is a valid column in the `groups` table
           .order('name', { ascending: true }), // Correctly format the `order` parameter
         supabase.from('senders').select('*').eq('profile_id', user?.id).eq('is_active', true).order('domain'),
@@ -146,6 +147,14 @@ export function CampaignsPage() {
       setCampaigns(campaignsRes.data || []);
       setGroups(groupsRes.data || []);
       setSenders(sendersRes.data || []);
+      
+      // Carica i conteggi dei contatti per ogni gruppo
+      const contactCounts = new Map<string, number>();
+      for (const group of groupsRes.data || []) {
+        const count = await getGroupContactCount(group.id);
+        contactCounts.set(group.id, count);
+      }
+      setGroupContactCounts(contactCounts);
     } catch (error: any) {
       console.error('Error fetching data:', error);
       toast.error('Errore nel caricamento dei dati');
@@ -614,6 +623,30 @@ export function CampaignsPage() {
     });
   };
 
+  // Funzione per calcolare dinamicamente il numero di contatti attivi in un gruppo
+  const getGroupContactCount = async (groupId: string): Promise<number> => {
+    try {
+      const { data, error } = await supabase
+        .from('contact_groups')
+        .select(`
+          contact_id,
+          contacts!inner(id, is_active)
+        `)
+        .eq('group_id', groupId)
+        .eq('contacts.is_active', true);
+      
+      if (error) {
+        console.error(`Error getting contact count for group ${groupId}:`, error);
+        return 0;
+      }
+      
+      return data?.length || 0;
+    } catch (error) {
+      console.error(`Error getting contact count for group ${groupId}:`, error);
+      return 0;
+    }
+  };
+
   const toggleGroupSelection = (groupId: string) => {
     setFormData((prev) => {
       const exists = prev.selected_groups.find((group) => group.group_id === groupId);
@@ -639,7 +672,7 @@ export function CampaignsPage() {
 
     // Calculate total emails based on group percentages
     const totalEmails = formData.selected_groups.reduce((sum, group) => {
-      const groupContacts = groups.find((g) => g.id === group.group_id)?.contact_count || 0;
+      const groupContacts = groupContactCounts.get(group.group_id) || 0;
       
       // Se le percentuali non sono abilitate, usa tutto il gruppo
       if (!group.percentage_enabled) {
@@ -903,7 +936,7 @@ export function CampaignsPage() {
                               {/* Messaggio informativo se percentuali disabilitate */}
                               {!selectedGroup.percentage_enabled && (
                                 <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-                                  📧 Verranno utilizzati tutti i contatti del gruppo ({group.contact_count} contatti)
+                                  📧 Verranno utilizzati tutti i contatti del gruppo ({groupContactCounts.get(group.id) || 0} contatti)
                                 </div>
                               )}
                             </div>
