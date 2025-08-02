@@ -51,13 +51,31 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
     if (groupIds.length === 0) throw new Error('No groups associated with this campaign.');
     if (senderIds.length === 0) throw new Error('No senders associated with this campaign.');
 
-    // 3. Ottieni tutti i contatti attivi dai gruppi (logica invariata)
-    const { data: contactGroupsData, error: contactGroupsError } = await supabaseAdmin.from('contact_groups').select('contact_id').in('group_id', groupIds);
-    if (contactGroupsError) throw new Error('Failed to fetch contacts from groups.');
-    const contactIds = contactGroupsData?.map(cg => cg.contact_id) || [];
-    if (contactIds.length === 0) throw new Error('No contacts found in the associated groups.');
+    // 3. Ottieni tutti i contatti attivi dai gruppi con percentuali
+    const contactIds: string[] = [];
+    for (const group of campaign.selected_groups) {
+      const { data: groupContacts, error: groupContactsError } = await supabaseAdmin
+        .from('contact_groups')
+        .select('contact_id')
+        .eq('group_id', group.group_id);
 
-    const { data: contacts, error: contactsError } = await supabaseAdmin.from('contacts').select('id, email, first_name, last_name, is_active').in('id', contactIds).eq('is_active', true);
+      if (groupContactsError) throw new Error('Failed to fetch contacts from groups.');
+
+      const totalContacts = groupContacts?.length || 0;
+      const startIndex = Math.floor((group.percentage_start / 100) * totalContacts);
+      const endIndex = Math.ceil((group.percentage_end / 100) * totalContacts);
+
+      contactIds.push(...groupContacts.slice(startIndex, endIndex).map((gc) => gc.contact_id));
+    }
+
+    if (contactIds.length === 0) throw new Error('No contacts found in the selected groups with the specified percentages.');
+
+    const { data: contacts, error: contactsError } = await supabaseAdmin
+      .from('contacts')
+      .select('id, email, first_name, last_name, is_active')
+      .in('id', contactIds)
+      .eq('is_active', true);
+
     if (contactsError) throw new Error('Failed to fetch active contacts.');
     if (!contacts || contacts.length === 0) throw new Error('No active contacts found for this campaign.');
 

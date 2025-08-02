@@ -48,6 +48,12 @@ interface Sender {
   daily_limit: number
 }
 
+interface GroupSelection {
+  group_id: string;
+  percentage_start: number;
+  percentage_end: number;
+}
+
 // Progress Bar Component
 interface ProgressBarProps {
   progress: CampaignProgress
@@ -80,7 +86,7 @@ const initialFormData = {
   warm_up_days: 7,
   emails_per_batch: 50,
   batch_interval_minutes: 15,
-  selected_groups: [] as string[],
+  selected_groups: [] as GroupSelection[], // <-- Updated to include percentage ranges
   selected_senders: [] as string[],
   start_date: '',
   end_date: '' // <-- Added end_date to initial form data
@@ -213,6 +219,15 @@ export function CampaignsPage() {
       return
     }
 
+    const invalidGroups = formData.selected_groups.some(
+      (group) => group.percentage_start < 0 || group.percentage_end > 100 || group.percentage_start >= group.percentage_end
+    );
+    if (invalidGroups) {
+      toast.error('Le percentuali dei gruppi devono essere valide e non sovrapposte')
+      setIsActionLoading(null)
+      return;
+    }
+
     const startDate = new Date(formData.start_date)
     const endDate = new Date(formData.end_date)
     const today = new Date()
@@ -240,7 +255,8 @@ export function CampaignsPage() {
       batch_interval_minutes: handleNumericInput(String(formData.batch_interval_minutes), 1, 60, 15),
       start_date: formData.start_date,
       end_date: formData.end_date,
-      profile_id: user?.id
+      profile_id: user?.id,
+      selected_groups: formData.selected_groups, // <-- Save group selections with percentages
     }
 
     try {
@@ -525,6 +541,28 @@ export function CampaignsPage() {
     return Math.max(min, Math.min(max, parsed))
   }
 
+  const handleGroupSelection = (groupId: string, field: 'percentage_start' | 'percentage_end', value: number) => {
+    setFormData((prev) => {
+      const updatedGroups = prev.selected_groups.map((group) =>
+        group.group_id === groupId ? { ...group, [field]: value } : group
+      );
+      return { ...prev, selected_groups: updatedGroups };
+    });
+  };
+
+  const toggleGroupSelection = (groupId: string) => {
+    setFormData((prev) => {
+      const exists = prev.selected_groups.find((group) => group.group_id === groupId);
+      if (exists) {
+        return { ...prev, selected_groups: prev.selected_groups.filter((group) => group.group_id !== groupId) };
+      }
+      return {
+        ...prev,
+        selected_groups: [...prev.selected_groups, { group_id: groupId, percentage_start: 0, percentage_end: 100 }]
+      };
+    });
+  };
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -686,7 +724,56 @@ export function CampaignsPage() {
                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Intervallo (min)</label><input type="number" min="1" max="60" value={formData.batch_interval_minutes} onChange={(e) => setFormData({ ...formData, batch_interval_minutes: handleNumericInput(e.target.value, 1, 60, 15) })} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" /></div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-2">Gruppi Destinatari</label><div className="space-y-2 max-h-32 overflow-y-auto p-2 border rounded-lg">{groups.map((group) => (<label key={group.id} className="flex items-center"><input type="checkbox" className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" checked={formData.selected_groups.includes(group.id)} onChange={(e) => { if (e.target.checked) { setFormData({ ...formData, selected_groups: [...formData.selected_groups, group.id] }) } else { setFormData({ ...formData, selected_groups: formData.selected_groups.filter(id => id !== group.id) }) } } } /><span className="ml-2 text-sm text-gray-900">{group.name}</span></label>))}</div></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-2">Gruppi Destinatari</label>
+                  <div className="space-y-4 max-h-64 overflow-y-auto p-2 border rounded-lg">
+                    {groups.map((group) => {
+                      const selectedGroup = formData.selected_groups.find((g) => g.group_id === group.id);
+                      return (
+                        <div key={group.id} className="space-y-2">
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                              checked={!!selectedGroup}
+                              onChange={() => toggleGroupSelection(group.id)}
+                            />
+                            <span className="ml-2 text-sm text-gray-900">{group.name}</span>
+                          </label>
+                          {selectedGroup && (
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700">Inizio (%)</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  value={selectedGroup.percentage_start}
+                                  onChange={(e) =>
+                                    handleGroupSelection(group.id, 'percentage_start', parseInt(e.target.value, 10))
+                                  }
+                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-indigo-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700">Fine (%)</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  value={selectedGroup.percentage_end}
+                                  onChange={(e) =>
+                                    handleGroupSelection(group.id, 'percentage_end', parseInt(e.target.value, 10))
+                                  }
+                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-indigo-500"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Mittenti</label><div className="space-y-2 max-h-32 overflow-y-auto p-2 border rounded-lg">{senders.map((sender) => (<label key={sender.id} className="flex items-center"><input type="checkbox" className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" checked={formData.selected_senders.includes(sender.id)} onChange={(e) => { if (e.target.checked) { setFormData({ ...formData, selected_senders: [...formData.selected_senders, sender.id] }) } else { setFormData({ ...formData, selected_senders: formData.selected_senders.filter(id => id !== sender.id) }) } } } /><span className="ml-2 text-sm text-gray-900">{sender.display_name} ({sender.email_from})</span></label>))}</div></div>
               </div>
               <div className="mb-4">
