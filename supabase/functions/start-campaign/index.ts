@@ -59,8 +59,14 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
     if (!contactsInGroup?.length) continue;
 
     const totalContactsInGroup = contactsInGroup.length;
-    const startIndex = Math.floor((group.percentage_start / 100) * totalContactsInGroup);
-    const endIndex = Math.ceil((group.percentage_end / 100) * totalContactsInGroup);
+
+    // Controlla se percentage_start e percentage_end sono definiti
+    const startIndex = group.percentage_start !== undefined
+      ? Math.floor((group.percentage_start / 100) * totalContactsInGroup)
+      : 0; // Imposta a 0 per impostazione predefinita se non è definito
+    const endIndex = group.percentage_end !== undefined
+      ? Math.ceil((group.percentage_end / 100) * totalContactsInGroup)
+      : totalContactsInGroup; // Imposta al 100% per impostazione predefinita se non è definito
 
     // Assicurati che gli indici siano entro i limiti
     const validContacts = contactsInGroup.slice(
