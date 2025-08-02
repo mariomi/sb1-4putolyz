@@ -60,11 +60,11 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
 
     const totalContactsInGroup = contactsInGroup.length;
 
-    // Controlla se percentage_start e percentage_end sono definiti
-    const startIndex = group.percentage_start !== undefined
+    // Se le percentuali sono definite, usale per filtrare; altrimenti, seleziona l'intero gruppo
+    const startIndex = group.percentage_start !== undefined && group.percentage_end !== undefined
       ? Math.floor((group.percentage_start / 100) * totalContactsInGroup)
       : 0; // Imposta a 0 per impostazione predefinita se non è definito
-    const endIndex = group.percentage_end !== undefined
+    const endIndex = group.percentage_start !== undefined && group.percentage_end !== undefined
       ? Math.ceil((group.percentage_end / 100) * totalContactsInGroup)
       : totalContactsInGroup; // Imposta al 100% per impostazione predefinita se non è definito
 
@@ -78,7 +78,7 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
   }
 
   const contactIds = Array.from(finalContactIds);
-  if (!contactIds.length) throw new Error('No contacts found for the selected groups and percentages.');
+  if (!contactIds.length) throw new Error('No contacts found for the selected groups.');
 
   // 4. Filtra i contatti e mittenti attivi
   const { data: activeContacts, error: contactsError } = await supabaseAdmin
