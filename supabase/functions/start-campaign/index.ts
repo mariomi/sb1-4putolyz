@@ -55,8 +55,15 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
       .select('contact_id')
       .eq('group_id', group.group_id);
 
-    if (groupError) throw new Error(`Error fetching contacts for group ${group.group_id}: ${groupError.message}`);
-    if (!contactsInGroup?.length) continue;
+    if (groupError) {
+      console.error(`Error fetching contacts for group ${group.group_id}:`, groupError.message);
+      throw new Error(`Error fetching contacts for group ${group.group_id}: ${groupError.message}`);
+    }
+
+    if (!contactsInGroup?.length) {
+      console.warn(`No contacts found for group ${group.group_id}`);
+      continue;
+    }
 
     const totalContactsInGroup = contactsInGroup.length;
 
@@ -141,4 +148,53 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
   // 7. Insert queue entries and update campaign status
   if (queueEntries.length) {
     const { error: queueError } = await supabaseAdmin.from('campaign_queues').insert(queueEntries);
-    if
+    if (queueError) throw new Error(`Error inserting queue entries: ${queueError.message}`);
+    console.log(`[EXEC] Inserted ${queueEntries.length} queue entries for campaign ${campaignId}.`);
+  }
+
+  // 8. Update campaign status to 'running'
+  const { error: updateError } = await supabaseAdmin
+    .from('campaigns')
+    .update({ status: 'running' })
+    .eq('id', campaignId);
+  if (updateError) throw new Error(`Error updating campaign status: ${updateError.message}`);
+
+  console.log(`[EXEC] Campaign ${campaignId} is now running.`);
+}
+
+// Funzione principale per l'esecuzione della funzione serverless
+export default async function handler(req: Request) {
+  // Abilita CORS
+  if (req.method === 'OPTIONS') {
+    return new Response('OK', {
+      headers: corsHeaders,
+    });
+  }
+
+  // Estrai il token dall'intestazione Authorization
+  const authHeader = req.headers.get('Authorization');
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : null;
+  if (!token) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  // Crea il client Supabase con il token dell'utente
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+
+  // Estrai l'ID della campagna dal corpo della richiesta
+  const { campaignId } = await req.json();
+
+  try {
+    // Avvia l'esecuzione della campagna
+    await startCampaignExecution(supabase, campaignId);
+
+    // Restituisci una risposta di successo
+    return new Response('Campaign started successfully', { status: 200 });
+  } catch (error) {
+    // Gestisci gli errori e restituisci una risposta appropriata
+    console.error('Error in campaign execution:', error);
+    return new Response(`Error: ${error.message}`, { status: 500 });
+  }
+}

@@ -130,7 +130,11 @@ export function CampaignsPage() {
     try {
       const [campaignsRes, groupsRes, sendersRes] = await Promise.all([
         supabase.from('campaigns').select('*').eq('profile_id', user?.id).order('created_at', { ascending: false }),
-        supabase.from('groups').select('id, name, description, contact_count').eq('profile_id', user?.id).order('name'), // <-- Fetch contact_count
+        supabase
+          .from('groups')
+          .select('id, name, description, contact_count') // Ensure `contact_count` exists in the database schema
+          .eq('profile_id', user?.id) // Ensure `profile_id` is a valid column in the `groups` table
+          .order('name', { ascending: true }), // Correctly format the `order` parameter
         supabase.from('senders').select('*').eq('profile_id', user?.id).eq('is_active', true).order('domain'),
       ]);
 
