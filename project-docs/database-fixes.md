@@ -6,7 +6,7 @@ L'errore 400 quando si tenta di salvare una campagna è causato da **discrepanze
 
 ## Migrazioni Create
 
-Ho creato 8 migrazioni per risolvere tutti i problemi:
+Ho creato 10 migrazioni per risolvere tutti i problemi:
 
 ### 1. `20250127000003_add_end_date_to_campaigns.sql`
 - Aggiunge il campo `end_date` alla tabella `campaigns`
@@ -79,6 +79,31 @@ Ho creato 8 migrazioni per risolvere tutti i problemi:
   - `created_at`
   - `updated_at`
 
+### 10. `20250127000012_fix_campaign_table_issues.sql` ⚠️ **NUOVO**
+- **Corregge i problemi rimanenti** nella tabella `campaigns`:
+  - Aggiunge il campo `end_date` se mancante
+  - Aggiunge il campo `selected_groups` se mancante
+  - **Rimuove il campo `stato`** (italiano) e assicura che `status` (inglese) funzioni
+  - Copia i dati da `stato` a `status` con la conversione corretta
+  - Aggiunge indici e trigger mancanti
+
+## Problemi Risolti dal Frontend
+
+Ho anche corretto i problemi nel frontend:
+
+### ✅ **Correzione `updateCampaignRelations`**
+- Ora gestisce correttamente gli oggetti `GroupSelection` con percentuali
+- Invece di mappare solo `group_id`, ora include `percentage_start` e `percentage_end`
+
+### ✅ **Correzione `toggleGroupSelection`**
+- Ora crea oggetti `GroupSelection` completi con percentuali di default (0-100)
+
+### ✅ **Correzione `startEditing`**
+- Ora carica correttamente i gruppi con percentuali di default
+
+### ✅ **Gestione Date**
+- Le date ora vengono gestite correttamente con valori `null` per campi vuoti
+
 ## Come Applicare le Migrazioni
 
 ### Opzione 1: Supabase CLI (Raccomandato)
@@ -104,6 +129,7 @@ supabase migration up
    -- 20250127000009_add_missing_sender_fields.sql
    -- 20250127000010_add_missing_contact_fields.sql
    -- 20250127000011_add_missing_group_fields.sql
+   -- 20250127000012_fix_campaign_table_issues.sql  ⚠️ IMPORTANTE
    ```
 
 ### Opzione 3: Reset Completo (Solo per sviluppo)
@@ -122,16 +148,29 @@ FROM information_schema.columns
 WHERE table_name = 'campaigns' 
 ORDER BY column_name;
 
--- Verifica che le tabelle esistano
-SELECT table_name 
-FROM information_schema.tables 
-WHERE table_schema = 'public' 
-AND table_name IN ('campaigns', 'groups', 'contacts', 'senders', 'campaign_groups', 'campaign_queues');
+-- Verifica che il campo stato sia stato rimosso
+SELECT column_name 
+FROM information_schema.columns 
+WHERE table_name = 'campaigns' AND column_name = 'stato';
+
+-- Verifica che end_date esista
+SELECT column_name 
+FROM information_schema.columns 
+WHERE table_name = 'campaigns' AND column_name = 'end_date';
+
+-- Verifica che selected_groups esista
+SELECT column_name 
+FROM information_schema.columns 
+WHERE table_name = 'campaigns' AND column_name = 'selected_groups';
 ```
 
 ## Problemi Risolti
 
 ✅ **Campo `end_date` mancante** - Ora disponibile per la nuova logica di scheduling
+
+✅ **Campo `stato` rimosso** - Sostituito completamente con `status` in inglese
+
+✅ **Campo `selected_groups` aggiunto** - Per salvare le selezioni dei gruppi con percentuali
 
 ✅ **Campi in italiano** - Rinominati in inglese per compatibilità con il frontend
 
@@ -147,6 +186,8 @@ AND table_name IN ('campaigns', 'groups', 'contacts', 'senders', 'campaign_group
 
 ✅ **Relazioni utente** - Aggiunto `profile_id` a tutte le tabelle per ownership
 
+✅ **Frontend corretto** - Gestione corretta degli oggetti `GroupSelection`
+
 ## Risultato Atteso
 
 Dopo aver applicato tutte le migrazioni:
@@ -154,6 +195,7 @@ Dopo aver applicato tutte le migrazioni:
 - Le campagne possono essere create e salvate correttamente
 - La nuova logica di scheduling funzionerà con `start_date` e `end_date`
 - Tutti i campi necessari saranno disponibili nel database
+- Le date saranno gestite correttamente
 
 ## Note Importanti
 
@@ -161,4 +203,5 @@ Dopo aver applicato tutte le migrazioni:
 - Tutte le migrazioni usano `IF NOT EXISTS` per evitare errori
 - Gli indici sono creati per le performance
 - I trigger per `updated_at` sono configurati automaticamente
-- Le policy RLS sono configurate per la sicurezza 
+- Le policy RLS sono configurate per la sicurezza
+- **La migrazione `20250127000012_fix_campaign_table_issues.sql` è cruciale** per risolvere i problemi rimanenti 

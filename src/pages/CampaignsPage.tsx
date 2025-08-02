@@ -260,8 +260,8 @@ export function CampaignsPage() {
       warm_up_days: formData.warm_up_enabled ? handleNumericInput(String(formData.warm_up_days), 1, 30, 7) : 0,
       emails_per_batch: handleNumericInput(String(formData.emails_per_batch), 10, 500, 50),
       batch_interval_minutes: handleNumericInput(String(formData.batch_interval_minutes), 1, 60, 15),
-      start_date: formData.start_date,
-      end_date: formData.end_date,
+      start_date: formData.start_date || null,
+      end_date: formData.end_date || null,
       profile_id: user?.id,
       selected_groups: formData.selected_groups, // <-- Save group selections with percentages
     }
@@ -295,8 +295,20 @@ export function CampaignsPage() {
       supabase.from('campaign_groups').delete().eq('campaign_id', campaignId),
       supabase.from('campaign_senders').delete().eq('campaign_id', campaignId)
     ])
-    const groupRelations = formData.selected_groups.map(groupId => ({ campaign_id: campaignId, group_id: groupId }))
-    const senderRelations = formData.selected_senders.map(senderId => ({ campaign_id: campaignId, sender_id: senderId }))
+    
+    // Create group relations with percentage data
+    const groupRelations = formData.selected_groups.map(group => ({ 
+      campaign_id: campaignId, 
+      group_id: group.group_id,
+      percentage_start: group.percentage_start,
+      percentage_end: group.percentage_end
+    }))
+    
+    const senderRelations = formData.selected_senders.map(senderId => ({ 
+      campaign_id: campaignId, 
+      sender_id: senderId 
+    }))
+    
     if (groupRelations.length > 0) {
       const { error: groupError } = await supabase.from('campaign_groups').insert(groupRelations)
       if (groupError) throw groupError
@@ -502,7 +514,11 @@ export function CampaignsPage() {
       setFormData({
         ...campaign,
         warm_up_enabled: campaign.warm_up_days > 0,
-        selected_groups: groupsRes.data.map(g => g.group_id),
+        selected_groups: groupsRes.data.map(g => ({ 
+          group_id: g.group_id, 
+          percentage_start: 0, 
+          percentage_end: 100 
+        })),
         selected_senders: sendersRes.data.map(s => s.sender_id),
         start_date: campaign.start_date || '',
         end_date: campaign.end_date || '', // <-- Populate end_date
@@ -571,7 +587,11 @@ export function CampaignsPage() {
       }
       return {
         ...prev,
-        selected_groups: [...prev.selected_groups, { group_id: groupId }], // Default to selecting the entire group
+        selected_groups: [...prev.selected_groups, { 
+          group_id: groupId, 
+          percentage_start: 0, 
+          percentage_end: 100 
+        }], // Default to selecting the entire group
       };
     });
   };
