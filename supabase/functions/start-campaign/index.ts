@@ -11,8 +11,9 @@ const corsHeaders = {
 
 interface GroupSelection {
   group_id: string;
-  percentage_start: number;
-  percentage_end: number;
+  percentage_enabled?: boolean; // Opzionale: se true, usa percentuali
+  percentage_start?: number;    // Opzionale: percentuale iniziale
+  percentage_end?: number;      // Opzionale: percentuale finale
 }
 
 interface SchedulingPlan {
@@ -259,10 +260,13 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
   if (!selectedGroups.length) throw new Error('No recipient groups selected.');
 
   for (const group of selectedGroups) {
+    console.log(`📋 Processing group ${group.group_id} with percentage_enabled: ${group.percentage_enabled}`);
+    
     const { data: contactsInGroup, error: groupError } = await supabaseAdmin
       .from('contact_groups')
       .select('contact_id')
-      .eq('group_id', group.group_id);
+      .eq('group_id', group.group_id)
+      .order('contact_id'); // Ordine stabile per percentuali
 
     if (groupError) {
       console.error(`Error fetching contacts for group ${group.group_id}:`, groupError.message);
@@ -275,19 +279,28 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
     }
 
     const totalContactsInGroup = contactsInGroup.length;
-    const startIndex = group.percentage_start !== undefined
-      ? Math.floor((group.percentage_start / 100) * totalContactsInGroup)
-      : 0;
-    const endIndex = group.percentage_end !== undefined
-      ? Math.ceil((group.percentage_end / 100) * totalContactsInGroup)
-      : totalContactsInGroup;
+    let validContacts: any[];
 
-    const validContacts = contactsInGroup.slice(
-      Math.max(0, startIndex),
-      Math.min(totalContactsInGroup, endIndex)
-    );
+    // Se le percentuali non sono abilitate, usa tutti i contatti
+    if (!group.percentage_enabled) {
+      console.log(`  ✅ Using all ${totalContactsInGroup} contacts (no percentage filter)`);
+      validContacts = contactsInGroup;
+    } else {
+      // Altrimenti applica il filtro percentuale
+      const startIndex = Math.floor(((group.percentage_start ?? 0) / 100) * totalContactsInGroup);
+      const endIndex = Math.ceil(((group.percentage_end ?? 100) / 100) * totalContactsInGroup);
+      
+      console.log(`  📊 Applying percentage filter: ${group.percentage_start ?? 0}% - ${group.percentage_end ?? 100}%`);
+      console.log(`  📊 Contacts range: ${startIndex} to ${endIndex} (${endIndex - startIndex} contacts)`);
+      
+      validContacts = contactsInGroup.slice(
+        Math.max(0, startIndex),
+        Math.min(totalContactsInGroup, endIndex)
+      );
+    }
 
     validContacts.forEach((c) => finalContactIds.add(c.contact_id));
+    console.log(`  📧 Added ${validContacts.length} contacts from group ${group.group_id}`);
   }
 
   const contactIds = Array.from(finalContactIds);

@@ -51,8 +51,9 @@ interface Sender {
 
 interface GroupSelection {
   group_id: string;
-  percentage_start: number;
-  percentage_end: number;
+  percentage_enabled?: boolean; // Opzionale: se true, usa percentuali
+  percentage_start?: number;    // Opzionale: percentuale iniziale
+  percentage_end?: number;      // Opzionale: percentuale finale
 }
 
 // Progress Bar Component
@@ -226,11 +227,17 @@ export function CampaignsPage() {
       return
     }
 
+    // Validazione percentuali solo se abilitate
     const invalidGroups = formData.selected_groups.some(
-      (group) => group.percentage_start < 0 || group.percentage_end > 100 || group.percentage_start >= group.percentage_end
+      (group) => {
+        if (!group.percentage_enabled) return false; // Se non abilitato, non validare
+        const start = group.percentage_start ?? 0;
+        const end = group.percentage_end ?? 100;
+        return start < 0 || end > 100 || start >= end;
+      }
     );
     if (invalidGroups) {
-      toast.error('Le percentuali dei gruppi devono essere valide e non sovrapposte')
+      toast.error('Le percentuali dei gruppi devono essere valide (0-100) e non sovrapposte')
       setIsActionLoading(null)
       return;
     }
@@ -296,13 +303,21 @@ export function CampaignsPage() {
       supabase.from('campaign_senders').delete().eq('campaign_id', campaignId)
     ])
     
-    // Create group relations with percentage data
-    const groupRelations = formData.selected_groups.map(group => ({ 
-      campaign_id: campaignId, 
-      group_id: group.group_id,
-      percentage_start: group.percentage_start,
-      percentage_end: group.percentage_end
-    }))
+    // Create group relations with optional percentage data
+    const groupRelations = formData.selected_groups.map(group => {
+      const relation: any = {
+        campaign_id: campaignId, 
+        group_id: group.group_id
+      };
+      
+      // Aggiungi percentuali solo se abilitate
+      if (group.percentage_enabled) {
+        relation.percentage_start = group.percentage_start ?? 0;
+        relation.percentage_end = group.percentage_end ?? 100;
+      }
+      
+      return relation;
+    })
     
     const senderRelations = formData.selected_senders.map(senderId => ({ 
       campaign_id: campaignId, 
@@ -515,9 +530,10 @@ export function CampaignsPage() {
         ...campaign,
         warm_up_enabled: campaign.warm_up_days > 0,
         selected_groups: groupsRes.data.map(g => ({ 
-          group_id: g.group_id, 
-          percentage_start: 0, 
-          percentage_end: 100 
+          group_id: g.group_id,
+          percentage_enabled: false, // Default: usa tutto il gruppo
+          percentage_start: 0,
+          percentage_end: 100
         })),
         selected_senders: sendersRes.data.map(s => s.sender_id),
         start_date: campaign.start_date || '',
@@ -579,6 +595,25 @@ export function CampaignsPage() {
     });
   };
 
+  const toggleGroupPercentage = (groupId: string) => {
+    setFormData((prev) => {
+      const updatedGroups = prev.selected_groups.map((group) => {
+        if (group.group_id === groupId) {
+          const newEnabled = !group.percentage_enabled;
+          return {
+            ...group,
+            percentage_enabled: newEnabled,
+            // Reset percentuali se disabilitato
+            percentage_start: newEnabled ? (group.percentage_start ?? 0) : 0,
+            percentage_end: newEnabled ? (group.percentage_end ?? 100) : 100
+          };
+        }
+        return group;
+      });
+      return { ...prev, selected_groups: updatedGroups };
+    });
+  };
+
   const toggleGroupSelection = (groupId: string) => {
     setFormData((prev) => {
       const exists = prev.selected_groups.find((group) => group.group_id === groupId);
@@ -588,9 +623,8 @@ export function CampaignsPage() {
       return {
         ...prev,
         selected_groups: [...prev.selected_groups, { 
-          group_id: groupId, 
-          percentage_start: 0, 
-          percentage_end: 100 
+          group_id: groupId,
+          percentage_enabled: false // Default: usa tutto il gruppo
         }], // Default to selecting the entire group
       };
     });
@@ -606,6 +640,13 @@ export function CampaignsPage() {
     // Calculate total emails based on group percentages
     const totalEmails = formData.selected_groups.reduce((sum, group) => {
       const groupContacts = groups.find((g) => g.id === group.group_id)?.contact_count || 0;
+      
+      // Se le percentuali non sono abilitate, usa tutto il gruppo
+      if (!group.percentage_enabled) {
+        return sum + groupContacts;
+      }
+      
+      // Altrimenti calcola la percentuale
       const percentageStart = group.percentage_start ?? 0;
       const percentageEnd = group.percentage_end ?? 100;
       const groupEmails = Math.floor((percentageEnd - percentageStart) / 100 * groupContacts);
@@ -812,33 +853,59 @@ export function CampaignsPage() {
                             <span className="ml-2 text-sm text-gray-900">{group.name}</span>
                           </label>
                           {selectedGroup && (
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <label className="block text-xs font-medium text-gray-700">Inizio (%)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max="100"
-                                  value={selectedGroup.percentage_start}
-                                  onChange={(e) =>
-                                    handleGroupSelection(group.id, 'percentage_start', parseInt(e.target.value, 10))
-                                  }
-                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-indigo-500"
-                                />
+                            <div className="space-y-3">
+                              {/* Toggle per abilitare/disabilitare percentuali */}
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-gray-600">Usa percentuali</span>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={selectedGroup.percentage_enabled ?? false}
+                                    onChange={() => toggleGroupPercentage(group.id)}
+                                    className="sr-only peer" 
+                                  />
+                                  <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
                               </div>
-                              <div>
-                                <label className="block text-xs font-medium text-gray-700">Fine (%)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max="100"
-                                  value={selectedGroup.percentage_end}
-                                  onChange={(e) =>
-                                    handleGroupSelection(group.id, 'percentage_end', parseInt(e.target.value, 10))
-                                  }
-                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-indigo-500"
-                                />
-                              </div>
+                              
+                              {/* Campi percentuale solo se abilitati */}
+                              {selectedGroup.percentage_enabled && (
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <label className="block text-xs font-medium text-gray-700">Inizio (%)</label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="100"
+                                      value={selectedGroup.percentage_start ?? 0}
+                                      onChange={(e) =>
+                                        handleGroupSelection(group.id, 'percentage_start', parseInt(e.target.value, 10))
+                                      }
+                                      className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-indigo-500"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs font-medium text-gray-700">Fine (%)</label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="100"
+                                      value={selectedGroup.percentage_end ?? 100}
+                                      onChange={(e) =>
+                                        handleGroupSelection(group.id, 'percentage_end', parseInt(e.target.value, 10))
+                                      }
+                                      className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-indigo-500"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Messaggio informativo se percentuali disabilitate */}
+                              {!selectedGroup.percentage_enabled && (
+                                <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                                  📧 Verranno utilizzati tutti i contatti del gruppo ({group.contact_count} contatti)
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
