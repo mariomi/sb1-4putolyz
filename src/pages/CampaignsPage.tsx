@@ -34,9 +34,10 @@ interface CampaignProgress {
 }
 
 interface Group {
-  id: string
-  name: string
-  description: string
+  id: string;
+  name: string;
+  description: string;
+  contact_count: number; // <-- Added contact_count to the Group interface
 }
 
 interface Sender {
@@ -129,24 +130,15 @@ export function CampaignsPage() {
     try {
       const [campaignsRes, groupsRes, sendersRes] = await Promise.all([
         supabase.from('campaigns').select('*').eq('profile_id', user?.id).order('created_at', { ascending: false }),
-        supabase.from('groups').select('*').eq('profile_id', user?.id).order('name'),
-        supabase.from('senders').select('*').eq('profile_id', user?.id).eq('is_active', true).order('domain')
+        supabase.from('groups').select('id, name, description, contact_count').eq('profile_id', user?.id).order('name'), // <-- Fetch contact_count
+        supabase.from('senders').select('*').eq('profile_id', user?.id).eq('is_active', true).order('domain'),
       ]);
 
-      if (campaignsRes.error) {
-        if (campaignsRes.error.code === '404') {
-          console.warn('No campaigns found.');
-          setCampaigns([]);
-        } else {
-          throw campaignsRes.error;
-        }
-      } else {
-        setCampaigns(campaignsRes.data || []);
-      }
-
+      if (campaignsRes.error) throw campaignsRes.error;
       if (groupsRes.error) throw groupsRes.error;
       if (sendersRes.error) throw sendersRes.error;
 
+      setCampaigns(campaignsRes.data || []);
       setGroups(groupsRes.data || []);
       setSenders(sendersRes.data || []);
     } catch (error: any) {
@@ -585,25 +577,25 @@ export function CampaignsPage() {
 
     const startDate = new Date(formData.start_date);
     const endDate = new Date(formData.end_date);
-    const numDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-
-    if (numDays <= 0) return null;
+    const numDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
 
     // Calculate total emails based on group percentages
     const totalEmails = formData.selected_groups.reduce((sum, group) => {
       const groupContacts = groups.find((g) => g.id === group.group_id)?.contact_count || 0;
-      const groupEmails = Math.floor((group.percentage_end - group.percentage_start) / 100 * groupContacts);
+      const percentageStart = group.percentage_start ?? 0;
+      const percentageEnd = group.percentage_end ?? 100;
+      const groupEmails = Math.floor((percentageEnd - percentageStart) / 100 * groupContacts);
       return sum + groupEmails;
     }, 0);
 
-    if (totalEmails === 0) return null; // No emails to send
+    if (totalEmails === 0) return null;
 
     const emailPerDay = Math.floor(totalEmails / numDays);
     const emailRemainder = totalEmails % numDays;
 
     const dailySendCount = Math.ceil(emailPerDay / formData.emails_per_batch);
     const batchSize = dailySendCount > 0 ? Math.floor(emailPerDay / dailySendCount) : 0;
-    const intervalBetweenSends = dailySendCount > 0 ? Math.floor((24 * 60) / dailySendCount) : 0; // in minutes
+    const intervalBetweenSends = dailySendCount > 0 ? Math.floor((24 * 60) / dailySendCount) : 0;
 
     const intervalHours = Math.floor(intervalBetweenSends / 60);
     const intervalMinutes = intervalBetweenSends % 60;

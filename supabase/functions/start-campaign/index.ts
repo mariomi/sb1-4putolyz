@@ -23,7 +23,7 @@ interface GroupSelection {
 async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId: string) {
   console.log(`[EXEC] Starting campaign execution for ID: ${campaignId}`);
 
-  // 1. Ottieni i dettagli della campagna dal database
+  // 1. Fetch campaign details
   const { data: campaign, error: campaignError } = await supabaseAdmin
     .from('campaigns')
     .select('*')
@@ -35,7 +35,7 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
   if (campaign.status !== 'draft') throw new Error(`Campaign is not in 'draft' status.`);
   if (!campaign.start_date || !campaign.end_date) throw new Error('Missing start_date or end_date.');
 
-  // 2. Ottieni i mittenti associati alla campagna
+  // 2. Fetch associated senders
   const { data: sendersRes, error: sendersError } = await supabaseAdmin
     .from('campaign_senders')
     .select('sender_id')
@@ -44,7 +44,7 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
   const senderIds = sendersRes.map((s) => s.sender_id);
   if (!senderIds.length) throw new Error('No senders associated with this campaign.');
 
-  // 3. Ottieni i contatti basati sulle percentuali dei gruppi
+  // 3. Fetch contacts based on group percentages
   const finalContactIds = new Set<string>();
   const selectedGroups: GroupSelection[] = campaign.selected_groups || [];
   if (!selectedGroups.length) throw new Error('No recipient groups selected.');
@@ -60,15 +60,13 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
 
     const totalContactsInGroup = contactsInGroup.length;
 
-    // Se le percentuali sono definite, usale per filtrare; altrimenti, seleziona l'intero gruppo
-    const startIndex = group.percentage_start !== undefined && group.percentage_end !== undefined
+    const startIndex = group.percentage_start !== undefined
       ? Math.floor((group.percentage_start / 100) * totalContactsInGroup)
-      : 0; // Imposta a 0 per impostazione predefinita se non è definito
-    const endIndex = group.percentage_start !== undefined && group.percentage_end !== undefined
+      : 0;
+    const endIndex = group.percentage_end !== undefined
       ? Math.ceil((group.percentage_end / 100) * totalContactsInGroup)
-      : totalContactsInGroup; // Imposta al 100% per impostazione predefinita se non è definito
+      : totalContactsInGroup;
 
-    // Assicurati che gli indici siano entro i limiti
     const validContacts = contactsInGroup.slice(
       Math.max(0, startIndex),
       Math.min(totalContactsInGroup, endIndex)
@@ -80,7 +78,7 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
   const contactIds = Array.from(finalContactIds);
   if (!contactIds.length) throw new Error('No contacts found for the selected groups.');
 
-  // 4. Filtra i contatti e mittenti attivi
+  // 4. Filter active contacts and senders
   const { data: activeContacts, error: contactsError } = await supabaseAdmin
     .from('contacts')
     .select('id')
@@ -97,75 +95,50 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
 
   console.log(`[EXEC] Processing ${activeContacts.length} active contacts and ${activeSenders.length} active senders.`);
 
-  // 5. Pulisci la coda precedente della campagna
+  // 5. Clear previous campaign queue
   await supabaseAdmin.from('campaign_queues').delete().eq('campaign_id', campaignId);
   console.log(`[EXEC] Cleared previous queue for campaign ${campaignId}.`);
 
-  // 6. Calcola la pianificazione
+  // 6. Batch-based scheduling
   const startDate = new Date(campaign.start_date);
   const endDate = new Date(campaign.end_date);
-  const totalDurationMs = endDate.getTime() - startDate.getTime();
-  if (totalDurationMs <= 0) throw new Error('End date must be after start date.');
-  const intervalPerEmailMs = totalDurationMs / activeContacts.length;
+  const numDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
+  const totalEmails = activeContacts.length;
+  const emailPerDay = Math.floor(totalEmails / numDays);
+  const emailRemainder = totalEmails % numDays;
 
   const queueEntries = [];
   let senderIndex = 0;
 
-  activeContacts.forEach((contact, i) => {
-    const scheduledTime = new Date(startDate.getTime() + i * intervalPerEmailMs);
-    const sender = activeSenders[senderIndex % activeSenders.length];
-    senderIndex++;
+  for (let day = 0; day < numDays; day++) {
+    const emailsToday = emailPerDay + (day < emailRemainder ? 1 : 0);
+    const numBatches = Math.ceil(emailsToday / campaign.emails_per_batch);
+    const batchSize = Math.floor(emailsToday / numBatches);
+    const intervalBetweenBatchesMs = campaign.batch_interval_minutes * 60 * 1000;
 
-    queueEntries.push({
-      campaign_id: campaignId,
-      contact_id: contact.id,
-      sender_id: sender.id,
-      status: 'pending',
-      scheduled_for: scheduledTime.toISOString(),
-      retry_count: 0,
-    });
-  });
+    for (let batch = 0; batch < numBatches; batch++) {
+      const batchStartIndex = day * emailPerDay + batch * batchSize;
+      const batchEndIndex = Math.min(batchStartIndex + batchSize, activeContacts.length);
 
-  // 7. Inserisci tutte le voci in coda con un'unica operazione
+      for (let i = batchStartIndex; i < batchEndIndex; i++) {
+        const scheduledTime = new Date(startDate.getTime() + day * 24 * 60 * 60 * 1000 + batch * intervalBetweenBatchesMs);
+        const sender = activeSenders[senderIndex % activeSenders.length];
+        senderIndex++;
+
+        queueEntries.push({
+          campaign_id: campaignId,
+          contact_id: activeContacts[i].id,
+          sender_id: sender.id,
+          status: 'pending',
+          scheduled_for: scheduledTime.toISOString(),
+          retry_count: 0,
+        });
+      }
+    }
+  }
+
+  // 7. Insert queue entries and update campaign status
   if (queueEntries.length) {
     const { error: queueError } = await supabaseAdmin.from('campaign_queues').insert(queueEntries);
-    if (queueError) throw new Error(`Error creating queue: ${queueError.message}`);
-  }
-
-  await supabaseAdmin.from('campaigns').update({ status: 'sending', updated_at: new Date().toISOString() }).eq('id', campaignId);
-  console.log(`[EXEC] Campaign ${campaignId} scheduled successfully with ${queueEntries.length} emails.`);
-}
-
-// Funzione principale Deno che riceve la richiesta HTTP (logica invariata)
-Deno.serve(async (req) => {
-  // Gestione della richiesta pre-flight CORS
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
-  try {
-    const { campaignId } = await req.json();
-    if (!campaignId) throw new Error('campaignId is required.');
-
-    // Crea un client Supabase con privilegi di amministratore
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    );
-
-    // Esegui la logica principale
-    await startCampaignExecution(supabaseAdmin, campaignId);
-
-    // Rispondi con successo
-    return new Response(JSON.stringify({ success: true, message: `Campaign ${campaignId} started successfully.` }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
-    });
-  } catch (error) {
-    console.error('Error in start-campaign function:', error);
-    // Rispondi con un errore
-    return new Response(JSON.stringify({ success: false, error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
-    });
-  }
-});
+    if
