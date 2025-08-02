@@ -6,7 +6,7 @@ L'errore 400 quando si tenta di salvare una campagna è causato da **discrepanze
 
 ## Migrazioni Create
 
-Ho creato 10 migrazioni per risolvere tutti i problemi:
+Ho creato 11 migrazioni per risolvere tutti i problemi:
 
 ### 1. `20250127000003_add_end_date_to_campaigns.sql`
 - Aggiunge il campo `end_date` alla tabella `campaigns`
@@ -87,6 +87,13 @@ Ho creato 10 migrazioni per risolvere tutti i problemi:
   - Copia i dati da `stato` a `status` con la conversione corretta
   - Aggiunge indici e trigger mancanti
 
+### 11. `20250127000013_fix_campaign_groups_percentage_fields.sql` ⚠️ **NUOVO**
+- **Corregge i problemi nella tabella `campaign_groups`**:
+  - Aggiunge i campi `percentage_start` e `percentage_end` se mancanti
+  - Aggiunge i campi `created_at` e `updated_at` se mancanti
+  - Crea indici e policy RLS se mancanti
+  - Risolve l'errore "Could not find the 'percentage_end' column"
+
 ## Problemi Risolti dal Frontend
 
 Ho anche corretto i problemi nel frontend:
@@ -130,6 +137,7 @@ supabase migration up
    -- 20250127000010_add_missing_contact_fields.sql
    -- 20250127000011_add_missing_group_fields.sql
    -- 20250127000012_fix_campaign_table_issues.sql  ⚠️ IMPORTANTE
+   -- 20250127000013_fix_campaign_groups_percentage_fields.sql  ⚠️ IMPORTANTE
    ```
 
 ### Opzione 3: Reset Completo (Solo per sviluppo)
@@ -162,6 +170,11 @@ WHERE table_name = 'campaigns' AND column_name = 'end_date';
 SELECT column_name 
 FROM information_schema.columns 
 WHERE table_name = 'campaigns' AND column_name = 'selected_groups';
+
+-- Verifica che i campi percentage esistano in campaign_groups
+SELECT column_name 
+FROM information_schema.columns 
+WHERE table_name = 'campaign_groups' AND column_name IN ('percentage_start', 'percentage_end');
 ```
 
 ## Problemi Risolti
