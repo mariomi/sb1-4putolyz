@@ -20,6 +20,7 @@ interface Campaign {
   created_at: string
   updated_at: string
   start_date: string | null
+  end_date: string | null; // <-- Added end_date field
   profile_id: string
 }
 
@@ -83,7 +84,8 @@ const initialFormData = {
   batch_interval_minutes: 15,
   selected_groups: [] as string[],
   selected_senders: [] as string[],
-  start_date: ''
+  start_date: '',
+  end_date: '' // <-- Added end_date to initial form data
 }
 
 export function CampaignsPage() {
@@ -197,8 +199,8 @@ export function CampaignsPage() {
     e.preventDefault()
     setIsActionLoading('submit')
 
-    if (!formData.name?.trim() || !formData.subject?.trim() || !formData.start_date) {
-      toast.error('Nome, oggetto e data di inizio sono obbligatori')
+    if (!formData.name?.trim() || !formData.subject?.trim() || !formData.start_date || !formData.end_date) {
+      toast.error('Tutti i campi principali (Nome, Oggetto, Date) sono obbligatori')
       setIsActionLoading(null)
       return
     }
@@ -213,10 +215,16 @@ export function CampaignsPage() {
       return
     }
     const startDate = new Date(formData.start_date)
+    const endDate = new Date(formData.end_date)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     if (startDate < today) {
       toast.error('La data di inizio deve essere oggi o futura')
+      setIsActionLoading(null)
+      return
+    }
+    if (endDate < startDate) {
+      toast.error('La data di fine non può precedere la data di inizio')
       setIsActionLoading(null)
       return
     }
@@ -233,6 +241,7 @@ export function CampaignsPage() {
       emails_per_batch: handleNumericInput(String(formData.emails_per_batch), 10, 500, 50),
       batch_interval_minutes: handleNumericInput(String(formData.batch_interval_minutes), 1, 60, 15),
       start_date: formData.start_date,
+      end_date: formData.end_date, // <-- Save end_date
       profile_id: user?.id
     }
 
@@ -468,7 +477,8 @@ export function CampaignsPage() {
         warm_up_enabled: campaign.warm_up_days > 0,
         selected_groups: groupsRes.data.map(g => g.group_id),
         selected_senders: sendersRes.data.map(s => s.sender_id),
-        start_date: campaign.start_date || ''
+        start_date: campaign.start_date || '',
+        end_date: campaign.end_date || '', // <-- Populate end_date
       })
       setShowCreateModal(true)
     } catch (error) {
@@ -584,10 +594,15 @@ export function CampaignsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-              <div className="flex items-center space-x-2 text-sm text-gray-600"><Calendar className="h-4 w-4" /><span>Creata: {formatDate(campaign.created_at)}</span></div>
-              <div className="flex items-center space-x-2 text-sm text-gray-600"><Users className="h-4 w-4" /><span>Durata: {campaign.send_duration_hours}h</span></div>
-              <div className="flex items-center space-x-2 text-sm text-gray-600"><Mail className="h-4 w-4" /><span>Batch: {campaign.emails_per_batch} email</span></div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 my-4 pt-4 border-t">
+              <div className="flex items-center space-x-2 text-sm text-gray-700">
+                <Calendar className="h-4 w-4 text-green-500" />
+                <span>Inizio: <strong>{formatDate(campaign.start_date)}</strong></span>
+              </div>
+              <div className="flex items-center space-x-2 text-sm text-gray-700">
+                <Calendar className="h-4 w-4 text-red-500" />
+                <span>Fine: <strong>{formatDate(campaign.end_date)}</strong></span>
+              </div>
               <div className="flex items-center space-x-2 text-sm text-gray-600">
                 {campaign.warm_up_days > 0 ? (
                   <>🔥<span>Warm-up: {campaign.warm_up_days} giorni</span></>
@@ -650,14 +665,17 @@ export function CampaignsPage() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-2xl p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-6">{editingCampaign ? 'Modifica Campagna' : 'Crea Nuova Campagna'}</h2>
-            <form onSubmit={handleFormSubmit}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className="mb-4">
+            <form onSubmit={handleFormSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Nome Campagna</label>
                   <input type="text" required className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
-                </div><div className="mb-4">
+                </div>
+                <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Oggetto Email</label>
                   <input type="text" required className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" value={formData.subject} onChange={(e) => setFormData({ ...formData, subject: e.target.value })} />
-                </div></div>
+                </div>
+              </div>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Contenuto HTML</label>
                 <textarea rows={8} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" value={formData.html_content} onChange={(e) => setFormData({ ...formData, html_content: e.target.value })} placeholder="<html><body><h1>Ciao {{first_name}}!</h1><p>Il tuo contenuto qui...</p></body></html>" />
@@ -725,9 +743,32 @@ export function CampaignsPage() {
                   </>
                 )}
               </div>
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Data di Inizio</label>
-                <input type="date" className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" value={formData.start_date || ''} onChange={(e) => setFormData({ ...formData, start_date: e.target.value })} />
+              <div className="pt-4 border-t">
+                <h3 className="text-lg font-medium text-gray-800 mb-4">Configurazione Invio</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Data di Inizio</label>
+                    <input
+                      type="date"
+                      required
+                      className="input-field"
+                      value={formData.start_date || ''}
+                      onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Data di Fine</label>
+                    <input
+                      type="date"
+                      required
+                      className="input-field"
+                      value={formData.end_date || ''}
+                      onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                    />
+                  </div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-2">Email per Batch</label><input type="number" min="10" max="500" value={formData.emails_per_batch} onChange={(e) => setFormData({ ...formData, emails_per_batch: handleNumericInput(e.target.value, 10, 500, 50) })} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-2">Intervallo (min)</label><input type="number" min="1" max="60" value={formData.batch_interval_minutes} onChange={(e) => setFormData({ ...formData, batch_interval_minutes: handleNumericInput(e.target.value, 1, 60, 15) })} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" /></div>
+                </div>
               </div>
               <div className="flex items-center justify-end space-x-4 pt-4 border-t">
                 <button type="button" onClick={resetForm} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors">Annulla</button>
@@ -748,7 +789,12 @@ export function CampaignsPage() {
             <div className="space-y-6">
               <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-xl">
                 <div className="flex items-center justify-between mb-4"><div><h3 className="text-2xl font-bold text-gray-900">{selectedCampaign.name}</h3><p className="text-gray-600 mt-1">{selectedCampaign.subject}</p></div><span className={`px-4 py-2 rounded-full text-sm font-medium ${getStatusColor(selectedCampaign.status)}`}>{getStatusLabel(selectedCampaign.status)}</span></div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="text-center"><div className="text-2xl font-bold text-indigo-600">{selectedCampaign.send_duration_hours}h</div><div className="text-sm text-gray-600">Durata Invio</div></div><div className="text-center"><div className="text-2xl font-bold text-purple-600">{selectedCampaign.start_time_of_day}</div><div className="text-sm text-gray-600">Orario Inizio</div></div><div className="text-center"><div className="text-2xl font-bold text-green-600">{selectedCampaign.emails_per_batch}</div><div className="text-sm text-gray-600">Email per Batch</div></div><div className="text-center"><div className="text-2xl font-bold text-orange-600">{selectedCampaign.batch_interval_minutes}min</div><div className="text-sm text-gray-600">Intervallo</div></div></div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="text-center"><div className="text-2xl font-bold text-indigo-600">{selectedCampaign.send_duration_hours}h</div><div className="text-sm text-gray-600">Durata Invio</div></div>
+                  <div className="text-center"><div className="text-2xl font-bold text-purple-600">{selectedCampaign.start_time_of_day}</div><div className="text-sm text-gray-600">Orario Inizio</div></div>
+                  <div className="text-center"><div className="text-2xl font-bold text-green-600">{selectedCampaign.emails_per_batch}</div><div className="text-sm text-gray-600">Email per Batch</div></div>
+                  <div className="text-center"><div className="text-2xl font-bold text-orange-600">{selectedCampaign.batch_interval_minutes}min</div><div className="text-sm text-gray-600">Intervallo</div></div>
+                </div>
                 
                 {/* Progress Bar in Modal for Active Campaigns */}
                 {(selectedCampaign.status === 'sending' || selectedCampaign.status === 'scheduled') && campaignProgress.has(selectedCampaign.id) && (
