@@ -335,7 +335,14 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
   // 6. Schedule the campaign with new logic
   const startDate = new Date(campaign.start_date);
   const endDate = new Date(campaign.end_date);
-  const dailySendCount = campaign.emails_per_batch || 10; // Default a 10 batch al giorno
+  
+  // Calcolo automatico del dailySendCount basato sul numero totale di email
+  // Usa una logica simile a quella del frontend per determinare batch e intervalli
+  const totalDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+  const emailsPerDay = Math.floor(activeContacts.length / totalDays);
+  const dailySendCount = Math.max(1, Math.min(10, Math.ceil(emailsPerDay / 10))); // Min 1, max 10 batch al giorno
+  
+  console.log(`📊 Automatic calculation: ${emailsPerDay} emails/day, ${dailySendCount} batches/day`);
   
   const schedulingPlan = await scheduleCampaign(
     supabaseAdmin,

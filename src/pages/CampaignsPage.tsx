@@ -14,8 +14,8 @@ interface Campaign {
   scheduled_at: string | null
   start_time_of_day: string
   warm_up_days: number
-  emails_per_batch: number
-  batch_interval_minutes: number
+  emails_per_batch?: number // Opzionale, calcolato automaticamente
+  batch_interval_minutes?: number // Opzionale, calcolato automaticamente
   created_at: string
   updated_at: string
   start_date: string | null
@@ -86,8 +86,6 @@ const initialFormData = {
   start_time_of_day: '09:00',
   warm_up_enabled: false,
   warm_up_days: 7,
-  emails_per_batch: 50,
-  batch_interval_minutes: 15,
   selected_groups: [] as GroupSelection[], // <-- Updated to include percentage ranges
   selected_senders: [] as string[],
   start_date: '',
@@ -266,6 +264,14 @@ export function CampaignsPage() {
       return
     }
 
+    // Calcola automaticamente i parametri di invio
+    const summary = calculateScheduleSummary();
+    if (!summary) {
+      toast.error('Impossibile calcolare i parametri di invio. Verifica le date e i gruppi selezionati.')
+      setIsActionLoading(null)
+      return;
+    }
+
     const campaignData = {
       name: formData.name.trim(),
       subject: formData.subject.trim(),
@@ -274,8 +280,7 @@ export function CampaignsPage() {
       scheduled_at: null,
       start_time_of_day: formData.start_time_of_day,
       warm_up_days: formData.warm_up_enabled ? handleNumericInput(String(formData.warm_up_days), 1, 30, 7) : 0,
-      emails_per_batch: handleNumericInput(String(formData.emails_per_batch), 10, 500, 50),
-      batch_interval_minutes: handleNumericInput(String(formData.batch_interval_minutes), 1, 60, 15),
+      // I parametri emails_per_batch e batch_interval_minutes verranno calcolati automaticamente dal backend
       start_date: formData.start_date || null,
       end_date: formData.end_date || null,
       profile_id: user?.id,
@@ -319,7 +324,7 @@ export function CampaignsPage() {
         group_id: group.group_id
       };
       
-      // Aggiungi percentuali solo se abilitate
+      // Aggiungi percentuali solo se abilitati
       if (group.percentage_enabled) {
         relation.percentage_start = group.percentage_start ?? 0;
         relation.percentage_end = group.percentage_end ?? 100;
@@ -691,9 +696,11 @@ export function CampaignsPage() {
     const emailPerDay = Math.floor(totalEmails / numDays);
     const emailRemainder = totalEmails % numDays;
 
-    const dailySendCount = Math.ceil(emailPerDay / formData.emails_per_batch);
-    const batchSize = dailySendCount > 0 ? Math.floor(emailPerDay / dailySendCount) : 0;
-    const intervalBetweenSends = dailySendCount > 0 ? Math.floor((24 * 60) / dailySendCount) : 0;
+    // Calcolo automatico dei parametri di invio
+    // Usa una logica simile a quella del backend per determinare batch e intervalli
+    const dailySendCount = Math.max(1, Math.min(10, Math.ceil(emailPerDay / 10))); // Min 1, max 10 batch al giorno
+    const batchSize = Math.max(1, Math.floor(emailPerDay / dailySendCount));
+    const intervalBetweenSends = Math.floor((24 * 60) / dailySendCount); // Minuti totali divisi per numero di batch
 
     const intervalHours = Math.floor(intervalBetweenSends / 60);
     const intervalMinutes = intervalBetweenSends % 60;
@@ -706,6 +713,7 @@ export function CampaignsPage() {
       intervalHours,
       intervalMinutes,
       totalEmails,
+      dailySendCount,
     };
   };
 
@@ -866,9 +874,8 @@ export function CampaignsPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Orario Inizio</label><input type="time" className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" value={formData.start_time_of_day} onChange={(e) => setFormData({ ...formData, start_time_of_day: e.target.value })} /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-2">Email per Batch</label><input type="number" min="10" max="500" value={formData.emails_per_batch} onChange={(e) => setFormData({ ...formData, emails_per_batch: handleNumericInput(e.target.value, 10, 500, 50) })} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-2">Intervallo (min)</label><input type="number" min="1" max="60" value={formData.batch_interval_minutes} onChange={(e) => setFormData({ ...formData, batch_interval_minutes: handleNumericInput(e.target.value, 1, 60, 15) })} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" /></div>
               </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Gruppi Destinatari</label>
                   <div className="space-y-4 max-h-64 overflow-y-auto p-2 border rounded-lg">
@@ -948,6 +955,7 @@ export function CampaignsPage() {
                 </div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-2">Mittenti</label><div className="space-y-2 max-h-32 overflow-y-auto p-2 border rounded-lg">{senders.map((sender) => (<label key={sender.id} className="flex items-center"><input type="checkbox" className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" checked={formData.selected_senders.includes(sender.id)} onChange={(e) => { if (e.target.checked) { setFormData({ ...formData, selected_senders: [...formData.selected_senders, sender.id] }) } else { setFormData({ ...formData, selected_senders: formData.selected_senders.filter(id => id !== sender.id) }) } } } /><span className="ml-2 text-sm text-gray-900">{sender.display_name} ({sender.email_from})</span></label>))}</div></div>
               </div>
+
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-3">
                   <label className="block text-sm font-medium text-gray-700">Sistema Warm-Up</label>
@@ -1001,6 +1009,7 @@ export function CampaignsPage() {
                   </>
                 )}
               </div>
+
               <div className="pt-4 border-t">
                 <h3 className="text-lg font-medium text-gray-800 mb-4">Configurazione Invio</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1035,13 +1044,42 @@ export function CampaignsPage() {
                   if (!summary) return <p className="text-gray-600">Inserisci date valide per calcolare il riepilogo.</p>;
 
                   return (
-                    <ul className="space-y-2 text-gray-700">
-                      <li><strong>Numero totale di giorni:</strong> {summary.numDays}</li>
-                      <li><strong>Email medie al giorno:</strong> {summary.emailPerDay} (con {summary.emailRemainder} email rimanenti)</li>
-                      <li><strong>Dimensione dei batch:</strong> {summary.batchSize} email per invio</li>
-                      <li><strong>Intervallo tra invii:</strong> {summary.intervalHours}h {summary.intervalMinutes}m</li>
-                      <li><strong>Totale email da inviare:</strong> {summary.totalEmails}</li>
-                    </ul>
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border border-blue-200">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-blue-600">{summary.numDays}</div>
+                          <div className="text-sm text-gray-600">Giorni totali</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-green-600">{summary.totalEmails}</div>
+                          <div className="text-sm text-gray-600">Email totali</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-purple-600">{summary.emailPerDay}</div>
+                          <div className="text-sm text-gray-600">Email/giorno</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-orange-600">{summary.dailySendCount}</div>
+                          <div className="text-sm text-gray-600">Batch/giorno</div>
+                        </div>
+                      </div>
+                      <div className="space-y-2 text-sm text-gray-700">
+                        <div className="flex justify-between">
+                          <span>Email per batch:</span>
+                          <span className="font-medium">{summary.batchSize} email</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Intervallo tra batch:</span>
+                          <span className="font-medium">{summary.intervalHours}h {summary.intervalMinutes}m</span>
+                        </div>
+                        {summary.emailRemainder > 0 && (
+                          <div className="flex justify-between text-orange-600">
+                            <span>Email rimanenti:</span>
+                            <span className="font-medium">{summary.emailRemainder} (distribuite negli ultimi giorni)</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   );
                 })()}
               </div>
@@ -1067,8 +1105,8 @@ export function CampaignsPage() {
                 <div className="flex items-center justify-between mb-4"><div><h3 className="text-2xl font-bold text-gray-900">{selectedCampaign.name}</h3><p className="text-gray-600 mt-1">{selectedCampaign.subject}</p></div><span className={`px-4 py-2 rounded-full text-sm font-medium ${getStatusColor(selectedCampaign.status)}`}>{getStatusLabel(selectedCampaign.status)}</span></div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="text-center"><div className="text-2xl font-bold text-indigo-600">{selectedCampaign.start_time_of_day}</div><div className="text-sm text-gray-600">Orario Inizio</div></div>
-                  <div className="text-center"><div className="text-2xl font-bold text-purple-600">{selectedCampaign.emails_per_batch}</div><div className="text-sm text-gray-600">Email per Batch</div></div>
-                  <div className="text-center"><div className="text-2xl font-bold text-orange-600">{selectedCampaign.batch_interval_minutes}min</div><div className="text-sm text-gray-600">Intervallo</div></div>
+                  <div className="text-center"><div className="text-2xl font-bold text-purple-600">Auto</div><div className="text-sm text-gray-600">Email per Batch</div></div>
+                  <div className="text-center"><div className="text-2xl font-bold text-orange-600">Auto</div><div className="text-sm text-gray-600">Intervallo</div></div>
                 </div>
                 
                 {/* Progress Bar in Modal for Active Campaigns */}
@@ -1087,7 +1125,7 @@ export function CampaignsPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div><h4 className="text-lg font-semibold text-gray-900 mb-3">Informazioni Temporali</h4><div className="space-y-2"><div className="flex justify-between"><span className="text-gray-600">Creata:</span><span className="font-medium">{formatDate(selectedCampaign.created_at)}</span></div><div className="flex justify-between"><span className="text-gray-600">Ultima modifica:</span><span className="font-medium">{formatDate(selectedCampaign.updated_at)}</span></div>{selectedCampaign.scheduled_at && (<div className="flex justify-between"><span className="text-gray-600">Programmata per:</span><span className="font-medium">{formatDateTime(selectedCampaign.scheduled_at)}</span></div>)}{selectedCampaign.start_date && (<div className="flex justify-between"><span className="text-gray-600">Data di Invio:</span><span className="font-medium">{formatDate(selectedCampaign.start_date)}</span></div>)}</div></div>
-                <div><h4 className="text-lg font-semibold text-gray-900 mb-3">Configurazione Avanzata</h4><div className="space-y-2"><div className="flex justify-between"><span className="text-gray-600">Giorni warm-up:</span><span className="font-medium">{selectedCampaign.warm_up_days}</span></div><div className="flex justify-between"><span className="text-gray-600">Batch size:</span><span className="font-medium">{selectedCampaign.emails_per_batch} email</span></div><div className="flex justify-between"><span className="text-gray-600">Intervallo batch:</span><span className="font-medium">{selectedCampaign.batch_interval_minutes} minuti</span></div></div></div>
+                <div><h4 className="text-lg font-semibold text-gray-900 mb-3">Configurazione Avanzata</h4><div className="space-y-2"><div className="flex justify-between"><span className="text-gray-600">Giorni warm-up:</span><span className="font-medium">{selectedCampaign.warm_up_days}</span></div><div className="flex justify-between"><span className="text-gray-600">Batch size:</span><span className="font-medium">Calcolato automaticamente</span></div><div className="flex justify-between"><span className="text-gray-600">Intervallo batch:</span><span className="font-medium">Calcolato automaticamente</span></div></div></div>
               </div>
               <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
                 {selectedCampaign.status === 'draft' && (<><button onClick={() => { setShowDetailsModal(false); handleStartCampaignNow(selectedCampaign.id) }} className="px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl font-medium hover:from-green-700 hover:to-green-800 transition-all duration-300 flex items-center space-x-2 shadow-lg"><Play className="h-4 w-4" /><span>Avvia Ora</span></button><button onClick={() => { setShowDetailsModal(false); handleScheduleCampaign(selectedCampaign.id) }} className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-medium hover:from-blue-600 hover:to-blue-700 transition-all duration-300 flex items-center space-x-2 shadow-lg"><Calendar className="h-4 w-4" /><span>Programma</span></button><button onClick={() => { setShowDetailsModal(false); startEditing(selectedCampaign) }} className="px-6 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-medium hover:from-purple-600 hover:to-purple-700 transition-all duration-300 flex items-center space-x-2"><Edit2 className="h-4 w-4" /><span>Modifica Campagna</span></button></>)}
