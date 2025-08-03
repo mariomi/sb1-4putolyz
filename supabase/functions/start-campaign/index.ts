@@ -9,13 +9,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface GroupSelection {
-  group_id: string;
-  percentage_enabled?: boolean; // Opzionale: se true, usa percentuali
-  percentage_start?: number;    // Opzionale: percentuale iniziale
-  percentage_end?: number;      // Opzionale: percentuale finale
-}
-
 interface SchedulingPlan {
   totalDays: number;
   emailsPerDay: number;
@@ -256,11 +249,25 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
 
   // 3. Fetch contacts based on group percentages
   const finalContactIds = new Set<string>();
-  const selectedGroups: GroupSelection[] = campaign.selected_groups || [];
-  if (!selectedGroups.length) throw new Error('No recipient groups selected.');
+  
+  // FIX: Leggi i gruppi dalla tabella campaign_groups invece che dal campo selected_groups
+  const { data: campaignGroups, error: groupsError } = await supabaseAdmin
+    .from('campaign_groups')
+    .select('group_id, percentage_start, percentage_end')
+    .eq('campaign_id', campaignId);
+    
+  if (groupsError) throw new Error(`Error fetching campaign groups: ${groupsError.message}`);
+  if (!campaignGroups?.length) throw new Error('No recipient groups selected.');
 
-  for (const group of selectedGroups) {
-    console.log(`📋 Processing group ${group.group_id} with percentage_enabled: ${group.percentage_enabled}`);
+  for (const group of campaignGroups) {
+    console.log(`📋 Processing group ${group.group_id}`);
+    
+    // Determina se le percentuali sono abilitate basandosi sui valori nel database
+    const percentageEnabled = group.percentage_start !== null && group.percentage_end !== null;
+    console.log(`  📊 Percentage enabled: ${percentageEnabled}`);
+    if (percentageEnabled) {
+      console.log(`  📊 Percentage range: ${group.percentage_start}% - ${group.percentage_end}%`);
+    }
     
     // FIX: Semplifica la query per evitare problemi con JOIN complessi
     // Prima recupera tutti i contact_id del gruppo
@@ -302,7 +309,7 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
     let validContacts: any[];
 
     // Se le percentuali non sono abilitate, usa tutti i contatti
-    if (!group.percentage_enabled) {
+    if (!percentageEnabled) {
       console.log(`  ✅ Using all ${totalContactsInGroup} active contacts (no percentage filter)`);
       validContacts = activeContacts;
     } else {
