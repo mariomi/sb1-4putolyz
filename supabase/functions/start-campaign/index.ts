@@ -262,36 +262,49 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
   for (const group of selectedGroups) {
     console.log(`📋 Processing group ${group.group_id} with percentage_enabled: ${group.percentage_enabled}`);
     
-    // BUG FIX: Recupera contatti con JOIN per verificare esistenza e stato attivo
-    // Prima versione: Recuperava solo contact_id da contact_groups senza verificare esistenza
-    // Ora: JOIN con contacts per verificare che i contatti esistano e siano attivi
-    const { data: contactsInGroup, error: groupError } = await supabaseAdmin
+    // FIX: Semplifica la query per evitare problemi con JOIN complessi
+    // Prima recupera tutti i contact_id del gruppo
+    const { data: contactGroups, error: groupError } = await supabaseAdmin
       .from('contact_groups')
-      .select(`
-        contact_id,
-        contacts!inner(id, is_active)
-      `)
+      .select('contact_id')
       .eq('group_id', group.group_id)
-      .eq('contacts.is_active', true) // Filtra solo contatti attivi
       .order('contact_id'); // Ordine stabile per percentuali
 
     if (groupError) {
-      console.error(`Error fetching contacts for group ${group.group_id}:`, groupError.message);
-      throw new Error(`Error fetching contacts for group ${group.group_id}: ${groupError.message}`);
+      console.error(`Error fetching contact_groups for group ${group.group_id}:`, groupError.message);
+      throw new Error(`Error fetching contact_groups for group ${group.group_id}: ${groupError.message}`);
     }
 
-    if (!contactsInGroup?.length) {
+    if (!contactGroups?.length) {
+      console.warn(`No contacts found in contact_groups for group ${group.group_id}`);
+      continue;
+    }
+
+    // Poi filtra solo i contatti attivi
+    const contactIds = contactGroups.map(cg => cg.contact_id);
+    const { data: activeContacts, error: contactsError } = await supabaseAdmin
+      .from('contacts')
+      .select('id')
+      .in('id', contactIds)
+      .eq('is_active', true);
+
+    if (contactsError) {
+      console.error(`Error fetching active contacts for group ${group.group_id}:`, contactsError.message);
+      throw new Error(`Error fetching active contacts for group ${group.group_id}: ${contactsError.message}`);
+    }
+
+    if (!activeContacts?.length) {
       console.warn(`No active contacts found for group ${group.group_id}`);
       continue;
     }
 
-    const totalContactsInGroup = contactsInGroup.length;
+    const totalContactsInGroup = activeContacts.length;
     let validContacts: any[];
 
     // Se le percentuali non sono abilitate, usa tutti i contatti
     if (!group.percentage_enabled) {
       console.log(`  ✅ Using all ${totalContactsInGroup} active contacts (no percentage filter)`);
-      validContacts = contactsInGroup;
+      validContacts = activeContacts;
     } else {
       // Altrimenti applica il filtro percentuale
       const startIndex = Math.floor(((group.percentage_start ?? 0) / 100) * totalContactsInGroup);
@@ -300,20 +313,20 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
       console.log(`  📊 Applying percentage filter: ${group.percentage_start ?? 0}% - ${group.percentage_end ?? 100}%`);
       console.log(`  📊 Contacts range: ${startIndex} to ${endIndex} (${endIndex - startIndex} contacts)`);
       
-      validContacts = contactsInGroup.slice(
+      validContacts = activeContacts.slice(
         Math.max(0, startIndex),
         Math.min(totalContactsInGroup, endIndex)
       );
     }
 
-    validContacts.forEach((c) => finalContactIds.add(c.contact_id));
+    validContacts.forEach((c) => finalContactIds.add(c.id));
     console.log(`  📧 Added ${validContacts.length} contacts from group ${group.group_id}`);
   }
 
   const contactIds = Array.from(finalContactIds);
   if (!contactIds.length) throw new Error('No active contacts found for the selected groups.');
 
-  // 4. Filter active senders (contatti già filtrati nella query precedente)
+  // 4. Filter active senders
   const { data: activeSenders, error: activeSendersError } = await supabaseAdmin
     .from('senders')
     .select('id')
@@ -321,9 +334,9 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
     .eq('is_active', true);
   if (activeSendersError || !activeSenders?.length) throw new Error('No active senders found.');
 
-  // BUG FIX: Ora i contatti sono già filtrati e attivi dalla query con JOIN
-  // Prima versione: Doppia query che poteva perdere contatti
-  // Ora: Singola query con JOIN che garantisce contatti esistenti e attivi
+  // FIX: I contatti sono già filtrati e attivi dalle query separate
+  // Prima versione: JOIN complesso che poteva fallire
+  // Ora: Query separate che garantiscono contatti esistenti e attivi
   const activeContacts = contactIds.map(id => ({ id })); // Converti per compatibilità
 
   console.log(`👥 Processing ${activeContacts.length} active contacts and ${activeSenders.length} active senders.`);
