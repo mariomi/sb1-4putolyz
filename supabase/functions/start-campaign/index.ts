@@ -1,5 +1,5 @@
 // percorso: supabase/functions/start-campaign/index.ts
-// VERSIONE CON LOGICA DI SCHEDULING UNIFICATA PER CAMPAIGNE IMMEDIATE
+// VERSIONE CORRETTA CON LOGICA DI SCHEDULING DISTRIBUITO NEL TEMPO
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
@@ -14,207 +14,101 @@ const corsHeaders = {
 
 /**
  * Calcola i parametri di scheduling per una campagna
+ * Distribuisce le email nel tempo tra startDate e endDate
  */
 function calculateSchedulingParameters(
   totalEmails: number,
   startDate: Date,
   endDate: Date
 ): {
-  numDays: number;
-  emailPerDay: number;
-  emailRemainder: number;
-  batchSize: number;
-  intervalHours: number;
-  intervalMinutes: number;
+  totalDays: number;
+  emailsPerDay: number;
   dailySendCount: number;
+  batchSize: number;
+  intervalMinutes: number;
 } {
-  // Calcola il numero di giorni
-  const numDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+  // Calcola il numero totale di giorni (minimo 1)
+  const totalDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
   
-  // Email al giorno
-  const emailPerDay = Math.floor(totalEmails / numDays);
-  const emailRemainder = totalEmails % numDays;
-
-  // Calcolo automatico dei parametri di invio
-  const dailySendCount = Math.max(1, Math.min(10, Math.ceil(emailPerDay / 10))); // Min 1, max 10 batch al giorno
-  const batchSize = Math.max(1, Math.floor(emailPerDay / dailySendCount));
-  const intervalBetweenSends = Math.floor((24 * 60) / dailySendCount); // Minuti totali divisi per numero di batch
-
-  const intervalHours = Math.floor(intervalBetweenSends / 60);
-  const intervalMinutes = intervalBetweenSends % 60;
+  // Email al giorno (distribuite uniformemente)
+  const emailsPerDay = Math.ceil(totalEmails / totalDays);
+  
+  // Numero di batch al giorno (tra 1 e 10)
+  const dailySendCount = Math.max(1, Math.min(10, Math.ceil(emailsPerDay / 50)));
+  
+  // Dimensione di ogni batch
+  const batchSize = Math.ceil(emailsPerDay / dailySendCount);
+  
+  // Intervallo in minuti tra i batch (distribuisce i batch nell'arco della giornata)
+  const intervalMinutes = Math.max(15, Math.floor((24 * 60) / dailySendCount));
 
   return {
-    numDays,
-    emailPerDay,
-    emailRemainder,
-    batchSize,
-    intervalHours,
-    intervalMinutes,
+    totalDays,
+    emailsPerDay,
     dailySendCount,
+    batchSize,
+    intervalMinutes,
   };
 }
 
 /**
- * Genera gli orari di invio per una campagna immediata
+ * Genera timestamp scaglionati per ogni email della campagna
+ * Questa è la funzione chiave che risolve il problema dell'invio di massa
  */
-function generateImmediateSchedule(
+function generateStaggeredTimestamps(
   totalEmails: number,
-  startTime: Date,
+  startDate: Date,
   schedulingParams: ReturnType<typeof calculateSchedulingParameters>
 ): Date[] {
-  const { dailySendCount, batchSize, intervalHours, intervalMinutes } = schedulingParams;
-  const schedule: Date[] = [];
+  const { totalDays, emailsPerDay, dailySendCount, batchSize, intervalMinutes } = schedulingParams;
+  const timestamps: Date[] = [];
   
-  let currentTime = new Date(startTime);
-  let emailsScheduled = 0;
-
-  // Per ogni batch del giorno
-  for (let batchIndex = 0; batchIndex < dailySendCount; batchIndex++) {
-    const emailsInThisBatch = Math.min(batchSize, totalEmails - emailsScheduled);
+  let emailIndex = 0;
+  
+  // Itera per ogni giorno
+  for (let dayOffset = 0; dayOffset < totalDays && emailIndex < totalEmails; dayOffset++) {
+    const currentDay = new Date(startDate);
+    currentDay.setDate(startDate.getDate() + dayOffset);
     
-    if (emailsInThisBatch <= 0) break;
-
-    // Aggiungi le email di questo batch
-    for (let i = 0; i < emailsInThisBatch; i++) {
-      schedule.push(new Date(currentTime));
-      emailsScheduled++;
-    }
-
-    // Calcola il prossimo orario di batch
-    if (batchIndex < dailySendCount - 1 && emailsScheduled < totalEmails) {
-      currentTime = new Date(currentTime.getTime() + 
-        (intervalHours * 60 * 60 * 1000) + 
-        (intervalMinutes * 60 * 1000));
-    }
-  }
-
-  return schedule;
-}
-
-/**
- * Funzione per inviare email tramite Resend
- */
-async function sendEmailViaResend(emailData: any): Promise<boolean> {
-  try {
-    const resendApiKey = Deno.env.get('RESEND_API_KEY');
-    if (!resendApiKey) {
-      console.error('❌ RESEND_API_KEY non configurata');
-      return false;
-    }
-
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${resendApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: emailData.from,
-        to: emailData.to,
-        subject: emailData.subject,
-        html: emailData.html,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('❌ Errore Resend:', errorData);
-      return false;
-    }
-
-    const result = await response.json();
-    console.log('✅ Email inviata con successo:', result.id);
-    return true;
-  } catch (error) {
-    console.error('❌ Errore nell\'invio email:', error);
-    return false;
-  }
-}
-
-/**
- * Processa le email in background con scheduling
- */
-async function processEmailsInBackground(
-  supabase: SupabaseClient,
-  campaignId: string,
-  queueEntries: any[]
-): Promise<void> {
-  console.log(`🔄 Avvio processamento background per ${queueEntries.length} email`);
-  
-  // Ordina le entry per scheduled_for
-  queueEntries.sort((a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime());
-  
-  // Processa le email in batch di 5 per volta
-  const batchSize = 5;
-  for (let i = 0; i < queueEntries.length; i += batchSize) {
-    const batch = queueEntries.slice(i, i + batchSize);
+    // Imposta l'orario di inizio del giorno (9:00 AM)
+    currentDay.setHours(9, 0, 0, 0);
     
-    // Processa il batch in parallelo
-    const promises = batch.map(async (entry) => {
-      try {
-        // Aggiorna lo status a 'sending'
-        await supabase
-          .from('campaign_queues')
-          .update({ status: 'sending' })
-          .eq('campaign_id', entry.campaign_id)
-          .eq('contact_id', entry.contact_id);
-
-        // Invia l'email
-        const success = await sendEmailViaResend(entry.email_data);
-        
-        // Aggiorna lo status finale
-        const finalStatus = success ? 'sent' : 'failed';
-        await supabase
-          .from('campaign_queues')
-          .update({ 
-            status: finalStatus,
-            sent_at: success ? new Date().toISOString() : null,
-            error_message: success ? null : 'Failed to send email'
-          })
-          .eq('campaign_id', entry.campaign_id)
-          .eq('contact_id', entry.contact_id);
-
-        return { success, contactId: entry.contact_id };
-      } catch (error) {
-        console.error(`❌ Errore processando email per ${entry.contact_id}:`, error);
-        
-        // Aggiorna lo status a 'failed'
-        await supabase
-          .from('campaign_queues')
-          .update({ 
-            status: 'failed',
-            error_message: error.message
-          })
-          .eq('campaign_id', entry.campaign_id)
-          .eq('contact_id', entry.contact_id);
-
-        return { success: false, contactId: entry.contact_id };
+    // Calcola quante email inviare in questo giorno
+    const emailsForThisDay = Math.min(emailsPerDay, totalEmails - emailIndex);
+    
+    // Distribuisci le email nei batch del giorno
+    for (let batchIndex = 0; batchIndex < dailySendCount && emailIndex < totalEmails; batchIndex++) {
+      const emailsInThisBatch = Math.min(batchSize, emailsForThisDay - (batchIndex * batchSize));
+      
+      if (emailsInThisBatch <= 0) break;
+      
+      // Calcola l'orario di questo batch
+      const batchTime = new Date(currentDay);
+      batchTime.setMinutes(batchTime.getMinutes() + (batchIndex * intervalMinutes));
+      
+      // Aggiungi le email di questo batch
+      for (let i = 0; i < emailsInThisBatch && emailIndex < totalEmails; i++) {
+        timestamps.push(new Date(batchTime));
+        emailIndex++;
       }
-    });
-
-    // Attendi il completamento del batch
-    const results = await Promise.all(promises);
-    const successCount = results.filter(r => r.success).length;
-    console.log(`📊 Batch completato: ${successCount}/${batch.length} email inviate`);
-
-    // Pausa tra i batch per evitare rate limiting
-    if (i + batchSize < queueEntries.length) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
-
-  console.log(`✅ Processamento background completato per campagna ${campaignId}`);
+  
+  return timestamps;
 }
 
 /**
- * Prepara i dati per l'invio con scheduling
+ * Recupera tutti i dati necessari per la campagna
  */
-async function prepareScheduledEmailData(
+async function fetchCampaignData(
   supabase: SupabaseClient,
-  campaignId: string,
-  startImmediately: boolean = false
-): Promise<any[]> {
-  console.log(`📋 Preparazione dati email per campagna ${campaignId} (immediata: ${startImmediately})`);
+  campaignId: string
+): Promise<{
+  campaign: any;
+  senders: any[];
+  contacts: any[];
+}> {
+  console.log(`📋 Recupero dati per campagna ${campaignId}`);
 
   // 1. Recupera i dati della campagna
   const { data: campaign, error: campaignError } = await supabase
@@ -309,36 +203,29 @@ async function prepareScheduledEmailData(
 
   console.log(`📧 Trovati ${allContacts.length} contatti per l'invio`);
 
-  // 6. Calcola i parametri di scheduling
-  const now = new Date();
-  const startDate = startImmediately ? now : new Date(campaign.start_date || now);
-  const endDate = new Date(campaign.end_date || new Date(now.getTime() + 24 * 60 * 60 * 1000)); // Default 1 giorno se non specificato
+  return { campaign, senders, contacts: allContacts };
+}
 
-  const schedulingParams = calculateSchedulingParameters(allContacts.length, startDate, endDate);
+/**
+ * Prepara le entry per la coda con timestamp scaglionati
+ */
+function prepareQueueEntries(
+  campaign: any,
+  senders: any[],
+  contacts: any[],
+  timestamps: Date[]
+): any[] {
+  console.log(`📅 Preparazione ${contacts.length} entry per la coda con timestamp scaglionati`);
   
-  console.log(`📅 Parametri di scheduling:`, {
-    totalEmails: allContacts.length,
-    numDays: schedulingParams.numDays,
-    emailPerDay: schedulingParams.emailPerDay,
-    dailySendCount: schedulingParams.dailySendCount,
-    batchSize: schedulingParams.batchSize,
-    intervalHours: schedulingParams.intervalHours,
-    intervalMinutes: schedulingParams.intervalMinutes
-  });
-
-  // 7. Genera gli orari di invio
-  const schedule = generateImmediateSchedule(allContacts.length, startDate, schedulingParams);
-
-  // 8. Prepara le entry per la coda
   const queueEntries: any[] = [];
 
-  for (let i = 0; i < allContacts.length; i++) {
-    const contact = allContacts[i];
+  for (let i = 0; i < contacts.length; i++) {
+    const contact = contacts[i];
     const sender = senders[i % senders.length]; // Cicla tra i mittenti
-    const scheduledFor = schedule[i] || now; // Fallback all'orario corrente
+    const scheduledFor = timestamps[i] || new Date(); // Fallback all'orario corrente
 
     queueEntries.push({
-      campaign_id: campaignId,
+      campaign_id: campaign.id,
       contact_id: contact.id,
       sender_id: sender.id,
       status: 'pending',
@@ -357,10 +244,13 @@ async function prepareScheduledEmailData(
 }
 
 /**
- * Funzione principale per l'avvio della campagna
+ * Funzione principale per l'avvio della campagna con scheduling corretto
  */
-async function startCampaignExecution(supabase: SupabaseClient, campaignId: string, startImmediately: boolean = false, queueEntries?: any[]): Promise<void> {
-  console.log(`🚀 Avvio campagna per ID: ${campaignId} (immediata: ${startImmediately}, queueEntries forniti: ${!!queueEntries})`);
+async function startCampaignWithProperScheduling(
+  supabase: SupabaseClient,
+  campaignId: string
+): Promise<void> {
+  console.log(`🚀 Avvio campagna ${campaignId} con scheduling distribuito nel tempo`);
 
   // 1. Verifica che la campagna sia in stato 'draft'
   const { data: campaign, error: campaignError } = await supabase
@@ -377,26 +267,48 @@ async function startCampaignExecution(supabase: SupabaseClient, campaignId: stri
     throw new Error(`Campaign is not in 'draft' status. Current status: ${campaign.status}`);
   }
 
-  let finalQueueEntries: any[];
+  // 2. Recupera tutti i dati necessari
+  const { campaign: campaignData, senders, contacts } = await fetchCampaignData(supabase, campaignId);
 
-  // 2. Gestisci i due scenari: Avvio immediato vs Programma
-  if (startImmediately && queueEntries && queueEntries.length > 0) {
-    // SCENARIO 1: Avvio immediato con queueEntries pre-calcolati dal frontend
-    console.log(`📋 Utilizzo ${queueEntries.length} entry pre-calcolate dal frontend`);
-    finalQueueEntries = queueEntries;
-  } else {
-    // SCENARIO 2: Avvio programmato o fallback - calcola la pianificazione lato server
-    console.log(`📋 Calcolo pianificazione lato server`);
-    finalQueueEntries = await prepareScheduledEmailData(supabase, campaignId, startImmediately);
+  // 3. Calcola i parametri di scheduling
+  const startDate = new Date(); // Ora corrente
+  const endDate = new Date(campaignData.end_date || new Date(startDate.getTime() + 24 * 60 * 60 * 1000)); // Default 1 giorno
+
+  const schedulingParams = calculateSchedulingParameters(contacts.length, startDate, endDate);
+  
+  console.log(`📅 Parametri di scheduling:`, {
+    totalEmails: contacts.length,
+    totalDays: schedulingParams.totalDays,
+    emailsPerDay: schedulingParams.emailsPerDay,
+    dailySendCount: schedulingParams.dailySendCount,
+    batchSize: schedulingParams.batchSize,
+    intervalMinutes: schedulingParams.intervalMinutes
+  });
+
+  // 4. Genera timestamp scaglionati per ogni email
+  const timestamps = generateStaggeredTimestamps(contacts.length, startDate, schedulingParams);
+  
+  console.log(`⏰ Generati ${timestamps.length} timestamp scaglionati`);
+  console.log(`📊 Primo timestamp: ${timestamps[0]?.toISOString()}`);
+  console.log(`📊 Ultimo timestamp: ${timestamps[timestamps.length - 1]?.toISOString()}`);
+
+  // 5. Prepara le entry per la coda
+  const queueEntries = prepareQueueEntries(campaignData, senders, contacts, timestamps);
+
+  // 6. Pulisci la coda precedente per questa campagna
+  const { error: deleteError } = await supabase
+    .from('campaign_queues')
+    .delete()
+    .eq('campaign_id', campaignId);
+
+  if (deleteError) {
+    throw new Error(`Error clearing previous queue: ${deleteError.message}`);
   }
 
-  // 3. Pulisci la coda precedente
-  await supabase.from('campaign_queues').delete().eq('campaign_id', campaignId);
-
-  // 4. Inserisci le nuove entry nella coda
+  // 7. Inserisci le nuove entry nella coda con timestamp scaglionati
   const { error: insertError } = await supabase
     .from('campaign_queues')
-    .insert(finalQueueEntries.map(entry => ({
+    .insert(queueEntries.map(entry => ({
       campaign_id: entry.campaign_id,
       contact_id: entry.contact_id,
       sender_id: entry.sender_id,
@@ -409,43 +321,35 @@ async function startCampaignExecution(supabase: SupabaseClient, campaignId: stri
     throw new Error(`Error inserting queue entries: ${insertError.message}`);
   }
 
-  // 5. Aggiorna lo status della campagna
-  const updateData: any = { 
-    status: 'sending',
-    updated_at: new Date().toISOString()
-  };
-
-  // Se è un avvio immediato, aggiorna anche start_date e scheduled_at
-  if (startImmediately) {
-    updateData.start_date = new Date().toISOString().split('T')[0];
-    updateData.scheduled_at = new Date().toISOString();
-  }
-
+  // 8. Aggiorna lo status della campagna
   const { error: updateError } = await supabase
     .from('campaigns')
-    .update(updateData)
+    .update({
+      status: 'sending',
+      start_date: startDate.toISOString().split('T')[0],
+      scheduled_at: startDate.toISOString(),
+      updated_at: new Date().toISOString()
+    })
     .eq('id', campaignId);
 
   if (updateError) {
     throw new Error(`Error updating campaign status: ${updateError.message}`);
   }
 
-  console.log(`✅ Campagna ${campaignId} preparata per l'invio (${finalQueueEntries.length} email)`);
-
-  // 6. Avvia il processamento in background (non attendere)
-  processEmailsInBackground(supabase, campaignId, finalQueueEntries).catch(error => {
-    console.error(`❌ Errore nel processamento background:`, error);
-  });
+  console.log(`✅ Campagna ${campaignId} avviata con successo`);
+  console.log(`📊 ${queueEntries.length} email programmate per l'invio nel tempo`);
+  console.log(`⏰ Prima email: ${timestamps[0]?.toISOString()}`);
+  console.log(`⏰ Ultima email: ${timestamps[timestamps.length - 1]?.toISOString()}`);
 }
 
 // Funzione principale per l'esecuzione della funzione serverless
 export default async function handler(req: Request) {
-  console.log(`🚀 Edge Function called with method: ${req.method}`);
+  console.log(`🚀 Edge Function start-campaign chiamata con metodo: ${req.method}`);
   console.log(`📡 Request URL: ${req.url}`);
   
   // Abilita CORS per tutte le richieste
   if (req.method === 'OPTIONS') {
-    console.log(`✅ Handling CORS preflight request`);
+    console.log(`✅ Gestione richiesta CORS preflight`);
     return new Response('', {
       status: 200,
       headers: corsHeaders,
@@ -454,10 +358,10 @@ export default async function handler(req: Request) {
 
   // Estrai il token dall'intestazione Authorization
   const authHeader = req.headers.get('Authorization');
-  console.log(`🔑 Auth header: ${authHeader ? 'Present' : 'Missing'}`);
+  console.log(`🔑 Auth header: ${authHeader ? 'Presente' : 'Mancante'}`);
   const token = authHeader?.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : null;
   if (!token) {
-    console.log(`❌ No token provided`);
+    console.log(`❌ Nessun token fornito`);
     return new Response(
       JSON.stringify({ 
         success: false, 
@@ -483,7 +387,7 @@ export default async function handler(req: Request) {
     // Estrai l'ID della campagna dal corpo della richiesta
     const body = await req.json();
     console.log(`📦 Request body:`, body);
-    const { campaignId, startImmediately = false } = body;
+    const { campaignId } = body;
 
     if (!campaignId) {
       return new Response(
@@ -498,21 +402,17 @@ export default async function handler(req: Request) {
       );
     }
 
-    console.log(`🎯 Starting campaign for ID: ${campaignId} (immediate: ${startImmediately})`);
+    console.log(`🎯 Avvio campagna per ID: ${campaignId}`);
     
-    // Avvia la campagna in background (non attendere il completamento)
-    startCampaignExecution(supabase, campaignId, startImmediately).catch(error => {
-      console.error(`❌ Errore nell'avvio campagna:`, error);
-    });
+    // Avvia la campagna con scheduling corretto
+    await startCampaignWithProperScheduling(supabase, campaignId);
 
-    // Rispondi immediatamente con successo
+    // Rispondi con successo
     return new Response(
       JSON.stringify({ 
         success: true, 
         status: 'started',
-        message: startImmediately 
-          ? 'Campaign started immediately. Emails are being sent with proper scheduling.'
-          : 'Campaign scheduled successfully. Emails will be sent according to the schedule.'
+        message: 'Campaign started successfully with proper time-distributed scheduling. Emails will be sent according to the calculated schedule.'
       }),
       { 
         status: 200,
@@ -521,7 +421,7 @@ export default async function handler(req: Request) {
     );
   } catch (error) {
     // Gestisci gli errori e restituisci una risposta appropriata
-    console.error('Error in campaign execution:', error);
+    console.error('❌ Errore nell\'esecuzione della campagna:', error);
     return new Response(
       JSON.stringify({ 
         success: false, 
