@@ -7,6 +7,9 @@ import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Max-Age': '86400',
+  'Access-Control-Allow-Credentials': 'true',
 };
 
 interface GroupSelection {
@@ -256,11 +259,25 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
 
   // 3. Fetch contacts based on group percentages
   const finalContactIds = new Set<string>();
-  const selectedGroups: GroupSelection[] = campaign.selected_groups || [];
-  if (!selectedGroups.length) throw new Error('No recipient groups selected.');
+  
+  // FIX: Leggi i gruppi dalla tabella campaign_groups invece che dal campo selected_groups
+  const { data: campaignGroups, error: groupsError } = await supabaseAdmin
+    .from('campaign_groups')
+    .select('group_id, percentage_start, percentage_end')
+    .eq('campaign_id', campaignId);
+    
+  if (groupsError) throw new Error(`Error fetching campaign groups: ${groupsError.message}`);
+  if (!campaignGroups?.length) throw new Error('No recipient groups selected.');
 
-  for (const group of selectedGroups) {
-    console.log(`📋 Processing group ${group.group_id} with percentage_enabled: ${group.percentage_enabled}`);
+  for (const group of campaignGroups) {
+    console.log(`📋 Processing group ${group.group_id}`);
+    
+    // Determina se le percentuali sono abilitate basandosi sui valori nel database
+    const percentageEnabled = group.percentage_start !== null && group.percentage_end !== null;
+    console.log(`  📊 Percentage enabled: ${percentageEnabled}`);
+    if (percentageEnabled) {
+      console.log(`  📊 Percentage range: ${group.percentage_start}% - ${group.percentage_end}%`);
+    }
     
     // FIX: Semplifica la query per evitare problemi con JOIN complessi
     // Prima recupera tutti i contact_id del gruppo
@@ -302,7 +319,7 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
     let validContacts: any[];
 
     // Se le percentuali non sono abilitate, usa tutti i contatti
-    if (!group.percentage_enabled) {
+    if (!percentageEnabled) {
       console.log(`  ✅ Using all ${totalContactsInGroup} active contacts (no percentage filter)`);
       validContacts = activeContacts;
     } else {
@@ -390,33 +407,65 @@ async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId:
 
 // Funzione principale per l'esecuzione della funzione serverless
 export default async function handler(req: Request) {
-  // Abilita CORS
+  console.log(`🚀 Edge Function called with method: ${req.method}`);
+  console.log(`📡 Request URL: ${req.url}`);
+  
+  // Abilita CORS per tutte le richieste
   if (req.method === 'OPTIONS') {
-    return new Response('OK', {
+    console.log(`✅ Handling CORS preflight request`);
+    return new Response('', {
+      status: 200,
       headers: corsHeaders,
     });
   }
 
   // Estrai il token dall'intestazione Authorization
   const authHeader = req.headers.get('Authorization');
+  console.log(`🔑 Auth header: ${authHeader ? 'Present' : 'Missing'}`);
   const token = authHeader?.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : null;
   if (!token) {
-    return new Response('Unauthorized', { status: 401 });
+    console.log(`❌ No token provided`);
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: 'Missing authorization header' 
+      }),
+      { 
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      }
+    );
   }
 
-  // Crea il client Supabase con il token dell'utente
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    {
-      global: { headers: { Authorization: `Bearer ${token}` } },
-    }
-  );
-
-  // Estrai l'ID della campagna dal corpo della richiesta
-  const { campaignId } = await req.json();
-
   try {
+    // Crea il client Supabase con il token dell'utente
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      {
+        global: { headers: { Authorization: `Bearer ${token}` } },
+      }
+    );
+
+    // Estrai l'ID della campagna dal corpo della richiesta
+    const body = await req.json();
+    console.log(`📦 Request body:`, body);
+    const { campaignId } = body;
+
+    if (!campaignId) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Missing campaignId in request body' 
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    console.log(`🎯 Starting campaign execution for ID: ${campaignId}`);
     // Avvia l'esecuzione della campagna
     await startCampaignExecution(supabase, campaignId);
 
