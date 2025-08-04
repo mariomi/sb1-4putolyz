@@ -13,6 +13,7 @@ entrypoint = "./functions/test-campaign/index.ts"
 [functions.start-campaign]
 enabled = true
 verify_jwt = true
+import_map = "./functions/start-campaign/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/start-campaign/index.ts"
