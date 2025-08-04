@@ -12,13 +12,6 @@ const corsHeaders = {
   'Access-Control-Allow-Credentials': 'true',
 };
 
-interface GroupSelection {
-  group_id: string;
-  percentage_enabled?: boolean; // Opzionale: se true, usa percentuali
-  percentage_start?: number;    // Opzionale: percentuale iniziale
-  percentage_end?: number;      // Opzionale: percentuale finale
-}
-
 interface SchedulingPlan {
   totalDays: number;
   emailsPerDay: number;
