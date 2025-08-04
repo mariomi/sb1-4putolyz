@@ -1,5 +1,5 @@
 // percorso: supabase/functions/start-campaign/index.ts
-// VERSIONE ASINCRONA CON RISPOSTA IMMEDIATA E PROCESSAMENTO IN BACKGROUND
+// VERSIONE SEMPLIFICATA E ROBUSTA CON RISPOSTA IMMEDIATA
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
@@ -11,43 +11,6 @@ const corsHeaders = {
   'Access-Control-Max-Age': '86400',
   'Access-Control-Allow-Credentials': 'true',
 };
-
-interface EmailQueueEntry {
-  campaign_id: string;
-  contact_id: string;
-  sender_id: string;
-  status: 'pending' | 'sending' | 'sent' | 'failed';
-  scheduled_for: string;
-  retry_count: number;
-  email_data: {
-    to: string;
-    from: string;
-    subject: string;
-    html: string;
-  };
-}
-
-interface CampaignData {
-  id: string;
-  name: string;
-  subject: string;
-  html_content: string;
-  start_date: string;
-  end_date: string;
-}
-
-interface ContactData {
-  id: string;
-  email: string;
-  first_name?: string;
-  last_name?: string;
-}
-
-interface SenderData {
-  id: string;
-  email_from: string;
-  display_name?: string;
-}
 
 /**
  * Funzione per inviare email tramite Resend
@@ -95,12 +58,12 @@ async function sendEmailViaResend(emailData: any): Promise<boolean> {
 async function processEmailsInBackground(
   supabase: SupabaseClient,
   campaignId: string,
-  queueEntries: EmailQueueEntry[]
+  queueEntries: any[]
 ): Promise<void> {
   console.log(`🔄 Avvio processamento background per ${queueEntries.length} email`);
   
-  // Processa le email in batch di 10 per volta
-  const batchSize = 10;
+  // Processa le email in batch di 5 per volta (ridotto per evitare timeout)
+  const batchSize = 5;
   for (let i = 0; i < queueEntries.length; i += batchSize) {
     const batch = queueEntries.slice(i, i + batchSize);
     
@@ -152,9 +115,9 @@ async function processEmailsInBackground(
     const successCount = results.filter(r => r.success).length;
     console.log(`📊 Batch completato: ${successCount}/${batch.length} email inviate`);
 
-    // Pausa breve tra i batch per evitare rate limiting
+    // Pausa più lunga tra i batch per evitare rate limiting
     if (i + batchSize < queueEntries.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 
@@ -167,7 +130,7 @@ async function processEmailsInBackground(
 async function prepareImmediateEmailData(
   supabase: SupabaseClient,
   campaignId: string
-): Promise<EmailQueueEntry[]> {
+): Promise<any[]> {
   console.log(`📋 Preparazione dati email per campagna ${campaignId}`);
 
   // 1. Recupera i dati della campagna
@@ -214,7 +177,7 @@ async function prepareImmediateEmailData(
   }
 
   // 5. Recupera tutti i contatti dai gruppi
-  const allContacts: ContactData[] = [];
+  const allContacts: any[] = [];
   
   for (const group of campaignGroups) {
     // Determina se le percentuali sono abilitate
@@ -264,7 +227,7 @@ async function prepareImmediateEmailData(
   console.log(`📧 Trovati ${allContacts.length} contatti per l'invio`);
 
   // 6. Prepara le entry per la coda
-  const queueEntries: EmailQueueEntry[] = [];
+  const queueEntries: any[] = [];
   const now = new Date();
 
   for (let i = 0; i < allContacts.length; i++) {
