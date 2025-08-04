@@ -414,7 +414,7 @@ export function CampaignsPage() {
     try {
       if (!user?.id) throw new Error('Utente non autenticato');
 
-      console.log('🚀 Avvio campagna IMMEDIATO con Edge Function...');
+      console.log('🚀 Avvio campagna IMMEDIATO con pianificazione frontend...');
 
       // Verifica che l'URL di Supabase sia configurato correttamente
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -422,13 +422,33 @@ export function CampaignsPage() {
         throw new Error('VITE_SUPABASE_URL non è configurato correttamente.');
       }
 
-      // Chiama l'Edge Function start-campaign per generare le email in coda IMMEDIATAMENTE
+      // Rimuovi eventuali slash finali dall'URL
+      const cleanSupabaseUrl = supabaseUrl.replace(/\/$/, '');
+      const functionUrl = `${cleanSupabaseUrl}/functions/v1/start-campaign`;
+      
+      console.log('🔧 Debug URL:', {
+        original: supabaseUrl,
+        cleaned: cleanSupabaseUrl,
+        functionUrl: functionUrl
+      });
+
+      // 1. Genera l'array queueEntries con la pianificazione calcolata nel frontend
+      console.log('📋 Generazione pianificazione immediata...');
+      const queueEntries = await generateQueueEntries(campaignId);
+      console.log(`✅ Generati ${queueEntries.length} entry per la coda`);
+
+      // 2. Ottieni il token di accesso
       const { data: session } = await supabase.auth.getSession();
       if (!session?.session?.access_token) {
         throw new Error('Token di accesso non disponibile');
       }
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/start-campaign`, {
+      console.log('📡 Invio richiesta a:', functionUrl);
+      console.log('🔑 Token disponibile:', !!session.session.access_token);
+      console.log('📦 Queue entries da inviare:', queueEntries.length);
+
+      // 3. Chiama l'Edge Function con l'array queueEntries pre-calcolato
+      const response = await fetch(functionUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -437,22 +457,59 @@ export function CampaignsPage() {
         body: JSON.stringify({
           campaignId,
           startImmediately: true, // Flag per indicare avvio immediato
+          queueEntries, // Array pre-calcolato dal frontend
         }),
       });
 
+      console.log('📊 Risposta ricevuta:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`Errore Edge Function: ${errorData.error || response.statusText}`);
+        let errorMessage = `Errore HTTP ${response.status}: ${response.statusText}`;
+        
+        try {
+          const errorData = await response.json();
+          errorMessage = `Errore Edge Function: ${errorData.error || errorData.message || errorMessage}`;
+        } catch (parseError) {
+          console.warn('Impossibile parsare la risposta di errore:', parseError);
+        }
+        
+        console.error('❌ Errore nella chiamata:', errorMessage);
+        toast.error(errorMessage);
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
       console.log('✅ Risultato avvio immediato:', result);
 
-      toast.success('Campagna avviata! Le email verranno inviate immediatamente.');
+      toast.success('🎉 Campagna avviata! Le email verranno inviate con pianificazione corretta.');
       await fetchData();
     } catch (error: any) {
-      console.error('Error starting campaign now:', error);
-      toast.error(error.message || 'Errore nell\'avvio della campagna');
+      console.error('❌ Error starting campaign now:', error);
+      
+      // Messaggi di errore più specifici
+      let userMessage = 'Errore nell\'avvio della campagna';
+      
+      if (error.message.includes('VITE_SUPABASE_URL')) {
+        userMessage = '❌ Configurazione Supabase mancante. Controlla il file .env.local';
+      } else if (error.message.includes('404')) {
+        userMessage = '❌ Edge Function non trovata. Verifica il deployment della funzione.';
+      } else if (error.message.includes('401')) {
+        userMessage = '❌ Non autorizzato. Effettua nuovamente il login.';
+      } else if (error.message.includes('CORS')) {
+        userMessage = '❌ Errore CORS. Verifica la configurazione della funzione.';
+      } else if (error.message.includes('No active contacts')) {
+        userMessage = '❌ Nessun contatto attivo trovato per i gruppi selezionati.';
+      } else if (error.message.includes('No senders')) {
+        userMessage = '❌ Nessun mittente attivo associato alla campagna.';
+      } else {
+        userMessage = error.message || userMessage;
+      }
+      
+      toast.error(userMessage);
     } finally {
       setIsActionLoading(null);
     }
@@ -715,6 +772,218 @@ export function CampaignsPage() {
       totalEmails,
       dailySendCount,
     };
+  };
+
+  /**
+   * Calcola i parametri di scheduling per una campagna immediata
+   */
+  const calculateImmediateScheduling = (totalEmails: number, startDate: Date, endDate: Date) => {
+    const numDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+    
+    // Email al giorno
+    const emailPerDay = Math.floor(totalEmails / numDays);
+    const emailRemainder = totalEmails % numDays;
+
+    // Calcolo automatico dei parametri di invio
+    const dailySendCount = Math.max(1, Math.min(10, Math.ceil(emailPerDay / 10))); // Min 1, max 10 batch al giorno
+    const batchSize = Math.max(1, Math.floor(emailPerDay / dailySendCount));
+    const intervalBetweenSends = Math.floor((24 * 60) / dailySendCount); // Minuti totali divisi per numero di batch
+
+    const intervalHours = Math.floor(intervalBetweenSends / 60);
+    const intervalMinutes = intervalBetweenSends % 60;
+
+    return {
+      numDays,
+      emailPerDay,
+      emailRemainder,
+      batchSize,
+      intervalHours,
+      intervalMinutes,
+      dailySendCount,
+    };
+  };
+
+  /**
+   * Genera gli orari di invio per una campagna immediata
+   */
+  const generateImmediateSchedule = (
+    totalEmails: number,
+    startTime: Date,
+    schedulingParams: ReturnType<typeof calculateImmediateScheduling>
+  ): Date[] => {
+    const { dailySendCount, batchSize, intervalHours, intervalMinutes } = schedulingParams;
+    const schedule: Date[] = [];
+    
+    let currentTime = new Date(startTime);
+    let emailsScheduled = 0;
+
+    // Per ogni batch del giorno
+    for (let batchIndex = 0; batchIndex < dailySendCount; batchIndex++) {
+      const emailsInThisBatch = Math.min(batchSize, totalEmails - emailsScheduled);
+      
+      if (emailsInThisBatch <= 0) break;
+
+      // Aggiungi le email di questo batch
+      for (let i = 0; i < emailsInThisBatch; i++) {
+        schedule.push(new Date(currentTime));
+        emailsScheduled++;
+      }
+
+      // Calcola il prossimo orario di batch
+      if (batchIndex < dailySendCount - 1 && emailsScheduled < totalEmails) {
+        currentTime = new Date(currentTime.getTime() + 
+          (intervalHours * 60 * 60 * 1000) + 
+          (intervalMinutes * 60 * 1000));
+      }
+    }
+
+    return schedule;
+  };
+
+  /**
+   * Recupera tutti i contatti per una campagna con logica percentuale
+   */
+  const getCampaignContacts = async (campaignId: string): Promise<any[]> => {
+    // 1. Recupera i gruppi della campagna
+    const { data: campaignGroups, error: groupsError } = await supabase
+      .from('campaign_groups')
+      .select('group_id, percentage_start, percentage_end')
+      .eq('campaign_id', campaignId);
+
+    if (groupsError || !campaignGroups?.length) {
+      throw new Error('No recipient groups selected');
+    }
+
+    const allContacts: any[] = [];
+    
+    for (const group of campaignGroups) {
+      // Determina se le percentuali sono abilitate
+      const percentageEnabled = group.percentage_start !== null && group.percentage_end !== null;
+      
+      // Recupera i contact_id del gruppo
+      const { data: contactGroups, error: groupError } = await supabase
+        .from('contact_groups')
+        .select('contact_id')
+        .eq('group_id', group.group_id)
+        .order('contact_id');
+
+      if (groupError || !contactGroups?.length) {
+        console.warn(`No contacts found in group ${group.group_id}`);
+        continue;
+      }
+
+      // Recupera i contatti attivi
+      const contactIds = contactGroups.map(cg => cg.contact_id);
+      const { data: activeContacts, error: contactsError } = await supabase
+        .from('contacts')
+        .select('*')
+        .in('id', contactIds)
+        .eq('is_active', true);
+
+      if (contactsError || !activeContacts?.length) {
+        console.warn(`No active contacts found in group ${group.group_id}`);
+        continue;
+      }
+
+      let validContacts = activeContacts;
+
+      // Applica filtro percentuale se abilitato
+      if (percentageEnabled) {
+        const startIndex = Math.floor(((group.percentage_start ?? 0) / 100) * activeContacts.length);
+        const endIndex = Math.ceil(((group.percentage_end ?? 100) / 100) * activeContacts.length);
+        validContacts = activeContacts.slice(startIndex, endIndex);
+      }
+
+      allContacts.push(...validContacts);
+    }
+
+    if (allContacts.length === 0) {
+      throw new Error('No active contacts found for the selected groups');
+    }
+
+    return allContacts;
+  };
+
+  /**
+   * Genera l'array queueEntries per l'avvio immediato
+   */
+  const generateQueueEntries = async (campaignId: string): Promise<any[]> => {
+    // 1. Recupera i dettagli della campagna
+    const { data: campaign, error: campaignError } = await supabase
+      .from('campaigns')
+      .select('*')
+      .eq('id', campaignId)
+      .single();
+
+    if (campaignError || !campaign) {
+      throw new Error(`Campaign not found: ${campaignError?.message}`);
+    }
+
+    // 2. Recupera i mittenti associati
+    const { data: sendersRes, error: sendersError } = await supabase
+      .from('campaign_senders')
+      .select('sender_id')
+      .eq('campaign_id', campaignId);
+
+    if (sendersError || !sendersRes?.length) {
+      throw new Error('No senders associated with this campaign');
+    }
+
+    // 3. Recupera i mittenti attivi
+    const senderIds = sendersRes.map(s => s.sender_id);
+    const { data: senders, error: sendersDataError } = await supabase
+      .from('senders')
+      .select('*')
+      .in('id', senderIds)
+      .eq('is_active', true);
+
+    if (sendersDataError || !senders?.length) {
+      throw new Error('No active senders found');
+    }
+
+    // 4. Recupera i contatti
+    const contacts = await getCampaignContacts(campaignId);
+    console.log(`📧 Trovati ${contacts.length} contatti per l'invio`);
+
+    // 5. Calcola i parametri di scheduling
+    const now = new Date();
+    const startDate = now;
+    const endDate = new Date(campaign.end_date || new Date(now.getTime() + 24 * 60 * 60 * 1000)); // Default 1 giorno se non specificato
+
+    const schedulingParams = calculateImmediateScheduling(contacts.length, startDate, endDate);
+    
+    console.log(`📅 Parametri di scheduling immediato:`, {
+      totalEmails: contacts.length,
+      numDays: schedulingParams.numDays,
+      emailPerDay: schedulingParams.emailPerDay,
+      dailySendCount: schedulingParams.dailySendCount,
+      batchSize: schedulingParams.batchSize,
+      intervalHours: schedulingParams.intervalHours,
+      intervalMinutes: schedulingParams.intervalMinutes
+    });
+
+    // 6. Genera gli orari di invio
+    const schedule = generateImmediateSchedule(contacts.length, startDate, schedulingParams);
+
+    // 7. Prepara le entry per la coda
+    const queueEntries: any[] = [];
+
+    for (let i = 0; i < contacts.length; i++) {
+      const contact = contacts[i];
+      const sender = senders[i % senders.length]; // Cicla tra i mittenti
+      const scheduledFor = schedule[i] || now; // Fallback all'orario corrente
+
+      queueEntries.push({
+        campaign_id: campaignId,
+        contact_id: contact.id,
+        sender_id: sender.id,
+        status: 'pending',
+        scheduled_for: scheduledFor.toISOString(),
+        retry_count: 0,
+      });
+    }
+
+    return queueEntries;
   };
 
   if (loading) {

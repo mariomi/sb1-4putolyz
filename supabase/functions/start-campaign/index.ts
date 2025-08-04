@@ -359,8 +359,8 @@ async function prepareScheduledEmailData(
 /**
  * Funzione principale per l'avvio della campagna
  */
-async function startCampaignExecution(supabase: SupabaseClient, campaignId: string, startImmediately: boolean = false): Promise<void> {
-  console.log(`🚀 Avvio campagna per ID: ${campaignId} (immediata: ${startImmediately})`);
+async function startCampaignExecution(supabase: SupabaseClient, campaignId: string, startImmediately: boolean = false, queueEntries?: any[]): Promise<void> {
+  console.log(`🚀 Avvio campagna per ID: ${campaignId} (immediata: ${startImmediately}, queueEntries forniti: ${!!queueEntries})`);
 
   // 1. Verifica che la campagna sia in stato 'draft'
   const { data: campaign, error: campaignError } = await supabase
@@ -377,8 +377,18 @@ async function startCampaignExecution(supabase: SupabaseClient, campaignId: stri
     throw new Error(`Campaign is not in 'draft' status. Current status: ${campaign.status}`);
   }
 
-  // 2. Prepara i dati per l'invio con scheduling
-  const queueEntries = await prepareScheduledEmailData(supabase, campaignId, startImmediately);
+  let finalQueueEntries: any[];
+
+  // 2. Gestisci i due scenari: Avvio immediato vs Programma
+  if (startImmediately && queueEntries && queueEntries.length > 0) {
+    // SCENARIO 1: Avvio immediato con queueEntries pre-calcolati dal frontend
+    console.log(`📋 Utilizzo ${queueEntries.length} entry pre-calcolate dal frontend`);
+    finalQueueEntries = queueEntries;
+  } else {
+    // SCENARIO 2: Avvio programmato o fallback - calcola la pianificazione lato server
+    console.log(`📋 Calcolo pianificazione lato server`);
+    finalQueueEntries = await prepareScheduledEmailData(supabase, campaignId, startImmediately);
+  }
 
   // 3. Pulisci la coda precedente
   await supabase.from('campaign_queues').delete().eq('campaign_id', campaignId);
@@ -386,7 +396,7 @@ async function startCampaignExecution(supabase: SupabaseClient, campaignId: stri
   // 4. Inserisci le nuove entry nella coda
   const { error: insertError } = await supabase
     .from('campaign_queues')
-    .insert(queueEntries.map(entry => ({
+    .insert(finalQueueEntries.map(entry => ({
       campaign_id: entry.campaign_id,
       contact_id: entry.contact_id,
       sender_id: entry.sender_id,
@@ -420,10 +430,10 @@ async function startCampaignExecution(supabase: SupabaseClient, campaignId: stri
     throw new Error(`Error updating campaign status: ${updateError.message}`);
   }
 
-  console.log(`✅ Campagna ${campaignId} preparata per l'invio`);
+  console.log(`✅ Campagna ${campaignId} preparata per l'invio (${finalQueueEntries.length} email)`);
 
   // 6. Avvia il processamento in background (non attendere)
-  processEmailsInBackground(supabase, campaignId, queueEntries).catch(error => {
+  processEmailsInBackground(supabase, campaignId, finalQueueEntries).catch(error => {
     console.error(`❌ Errore nel processamento background:`, error);
   });
 }
