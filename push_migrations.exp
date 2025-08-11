@@ -1,0 +1,12 @@
+#!/usr/bin/expect -f
+
+set timeout 60
+spawn supabase db push --include-all
+
+expect "Enter your database password:"
+send "Zuvmud-vizso9-teczik\r"
+
+expect "\[Y/n\]"
+send "y\r"
+
+expect eof

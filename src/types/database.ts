@@ -38,6 +38,10 @@ export interface Database {
           warm_up_days: number
           emails_per_batch: number
           batch_interval_minutes: number
+          start_date: string | null
+          end_date: string | null
+          sends_per_day: number
+          selected_groups: string | null
           created_at: string
           updated_at: string
         }
@@ -54,6 +58,10 @@ export interface Database {
           warm_up_days?: number
           emails_per_batch?: number
           batch_interval_minutes?: number
+          start_date?: string | null
+          end_date?: string | null
+          sends_per_day?: number
+          selected_groups?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -70,6 +78,10 @@ export interface Database {
           warm_up_days?: number
           emails_per_batch?: number
           batch_interval_minutes?: number
+          start_date?: string | null
+          end_date?: string | null
+          sends_per_day?: number
+          selected_groups?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -80,6 +92,7 @@ export interface Database {
           profile_id: string
           name: string
           description: string
+          contact_count: number
           created_at: string
           updated_at: string
         }
@@ -88,6 +101,7 @@ export interface Database {
           profile_id: string
           name: string
           description?: string
+          contact_count?: number
           created_at?: string
           updated_at?: string
         }
@@ -96,6 +110,7 @@ export interface Database {
           profile_id?: string
           name?: string
           description?: string
+          contact_count?: number
           created_at?: string
           updated_at?: string
         }
@@ -226,6 +241,35 @@ export interface Database {
           campaign_id?: string
           sender_id?: string
           created_at?: string
+        }
+      }
+      campaign_groups: {
+        Row: {
+          id: string
+          campaign_id: string
+          group_id: string
+          percentage_start: number
+          percentage_end: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          campaign_id: string
+          group_id: string
+          percentage_start?: number
+          percentage_end?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          campaign_id?: string
+          group_id?: string
+          percentage_start?: number
+          percentage_end?: number
+          created_at?: string
+          updated_at?: string
         }
       }
       campaign_queues: {

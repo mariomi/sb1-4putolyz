@@ -37,6 +37,8 @@ interface QueueItem {
     start_time_of_day: string
     send_duration_hours: number
     warm_up_days: number
+    emails_per_batch: number
+    batch_interval_minutes: number
   }
 }
 
@@ -73,6 +75,17 @@ Deno.serve(async (req: Request) => {
     )
 
     const resend = new Resend(Deno.env.get('RESEND_API_KEY')!)
+    
+    // Check if we're in test mode for additional logging
+    const allowFakeEmails = Deno.env.get('ALLOW_FAKE_EMAILS') === 'true'
+    const isTestMode = Deno.env.get('ENVIRONMENT') !== 'production'
+    
+    if (allowFakeEmails || isTestMode) {
+      console.log('🧪 Test mode enabled - fake emails will be processed')
+      if (Deno.env.get('TEST_EMAIL_OVERRIDE')) {
+        console.log(`📧 Test email override: ${Deno.env.get('TEST_EMAIL_OVERRIDE')}`)
+      }
+    }
 
     console.log('🚀 Campaign processor started with batch sending')
 
@@ -87,14 +100,12 @@ Deno.serve(async (req: Request) => {
         *,
         contact:contacts!inner(email, first_name, last_name, is_active),
         sender:senders!inner(id, email_from, display_name, domain, daily_limit, emails_sent_today, current_day, last_sent_at, is_active),
-        campaign:campaigns!inner(name, subject, html_content, status, start_time_of_day, send_duration_hours, warm_up_days)
+        campaign:campaigns!inner(name, subject, html_content, status, start_time_of_day, send_duration_hours, warm_up_days, emails_per_batch, batch_interval_minutes)
       `)
       .eq('status', 'pending')
-      .lte('scheduled_for', now)
-      .eq('contact.is_active', true)
       .eq('sender.is_active', true)
       .eq('campaign.status', 'sending')
-      .limit(100) // Increased limit for better batch processing
+      .limit(50) // Ridotto il limite per rispettare i batch
       .order('scheduled_for', { ascending: true })
 
     if (queueError) {
@@ -323,52 +334,111 @@ async function processSenderBatch(
   console.log(`📤 Processing batch for sender ${senderEmail}: ${items.length} emails`)
   console.log(`🔥 Warm-up status: ${warmUpProgress} - Effective limit: ${effectiveLimit}/${firstItem.sender.daily_limit}`)
 
-  // Mark all items as processing
-  await markItemsAsProcessing(supabase, items.map(item => item.id))
-
-  // Create batch emails for Resend
-  const batchEmails: BatchEmail[] = items.map(item => ({
-    from: `${senderName} <${senderEmail}>`,
-    to: [item.contact.email],
-    subject: item.campaign.subject,
-    html: item.campaign.html_content
-      .replace(/{{first_name}}/g, item.contact.first_name || '')
-      .replace(/{{last_name}}/g, item.contact.last_name || '')
-      .replace(/{{email}}/g, item.contact.email)
-  }))
-
-  try {
-    console.log(`🚀 Sending batch of ${batchEmails.length} emails via Resend`)
-    
-    // Send batch via Resend
-    const batchResult = await resend.batch.send(batchEmails)
-    
-    if (batchResult.error) {
-      console.error(`❌ Batch send failed for sender ${senderEmail}:`, batchResult.error)
-      await handleBatchFailure(supabase, items, batchResult.error.message)
-      return { senderId, senderEmail, sent: 0, failed: items.length, batchSize: 0 }
+  // Raggruppa le email per campagna per rispettare i limiti di batch
+  const emailsByCampaign: Record<string, QueueItem[]> = {}
+  for (const item of items) {
+    if (!emailsByCampaign[item.campaign_id]) {
+      emailsByCampaign[item.campaign_id] = []
     }
+    emailsByCampaign[item.campaign_id].push(item)
+  }
 
-    console.log(`✅ Batch sent successfully for sender ${senderEmail}:`, batchResult.data?.length, 'emails')
-    
-    // Process successful batch results
-    await handleBatchSuccess(supabase, items, batchResult.data)
-    
-    // Update sender stats
-    await updateSenderStats(supabase, senderId, items.length)
+  let totalSent = 0
+  let totalFailed = 0
 
-    return { 
-      senderId, 
-      senderEmail, 
-      sent: items.length, 
-      failed: 0, 
-      batchSize: items.length 
+  // Processa ogni campagna separatamente rispettando i limiti di batch
+  for (const [campaignId, campaignItems] of Object.entries(emailsByCampaign)) {
+    const campaign = campaignItems[0].campaign
+    const emailsPerBatch = campaign.emails_per_batch || 10
+    
+    console.log(`📦 Campagna ${campaignId}: ${campaignItems.length} email totali, ${emailsPerBatch} per batch`)
+    
+    // Processa solo il primo batch per questa esecuzione
+    const currentBatch = campaignItems.slice(0, emailsPerBatch)
+    console.log(`📤 Invio batch corrente: ${currentBatch.length} email`)
+    
+    // Mark current batch items as processing
+    await markItemsAsProcessing(supabase, currentBatch.map(item => item.id))
+
+    // Create batch emails for Resend
+    const batchEmails: BatchEmail[] = currentBatch.map(item => {
+      // Convert fake emails to valid test emails for development/testing
+      let emailToSend = item.contact.email
+      
+      // Check environment flag to allow fake emails
+      const allowFakeEmails = Deno.env.get('ALLOW_FAKE_EMAILS') === 'true'
+      const isTestMode = Deno.env.get('ENVIRONMENT') !== 'production'
+      
+      // Check if it's a fake/example domain
+      const isFakeEmail = emailToSend.includes('@example.com') || 
+                         emailToSend.includes('@test.com') || 
+                         emailToSend.includes('@fake.com') ||
+                         emailToSend.includes('@localhost') ||
+                         emailToSend.includes('@invalid')
+      
+      if (isFakeEmail && (allowFakeEmails || isTestMode)) {
+        // In test mode or when explicitly allowed, use a service that accepts any email
+        // Use Resend's test mode or a mailbox service like Mailtrap
+        const localPart = emailToSend.split('@')[0]
+        
+        // Check if we have a test email override
+        const testEmailOverride = Deno.env.get('TEST_EMAIL_OVERRIDE')
+        if (testEmailOverride) {
+          emailToSend = testEmailOverride
+          console.log(`🧪 Using test email override: ${emailToSend} (original: ${item.contact.email})`)
+        } else {
+          // Use original fake email - let Resend handle it
+          console.log(`🔄 Allowing fake email in test mode: ${item.contact.email}`)
+          // Keep original email
+        }
+      }
+      
+      return {
+        from: `${senderName} <${senderEmail}>`,
+        to: [emailToSend],
+        subject: item.campaign.subject,
+        html: item.campaign.html_content
+          .replace(/{{first_name}}/g, item.contact.first_name || '')
+          .replace(/{{last_name}}/g, item.contact.last_name || '')
+          .replace(/{{email}}/g, emailToSend)
+      }
+    })
+
+    try {
+      console.log(`🚀 Sending batch of ${batchEmails.length} emails via Resend`)
+      
+      // Send batch via Resend
+      const batchResult = await resend.batch.send(batchEmails)
+      
+      if (batchResult.error) {
+        console.error(`❌ Batch send failed for sender ${senderEmail}:`, batchResult.error)
+        await handleBatchFailure(supabase, currentBatch, batchResult.error.message)
+        totalFailed += currentBatch.length
+      } else {
+        console.log(`✅ Batch sent successfully for sender ${senderEmail}:`, batchResult.data?.length, 'emails')
+        
+        // Process successful batch results
+        await handleBatchSuccess(supabase, currentBatch, batchResult.data)
+        
+        // Update sender stats
+        await updateSenderStats(supabase, senderId, currentBatch.length)
+        
+        totalSent += currentBatch.length
+      }
+      
+    } catch (error) {
+      console.error(`💥 Unexpected error processing batch for sender ${senderEmail}:`, error)
+      await handleBatchFailure(supabase, currentBatch, error.message)
+      totalFailed += currentBatch.length
     }
-    
-  } catch (error) {
-    console.error(`💥 Unexpected error processing batch for sender ${senderEmail}:`, error)
-    await handleBatchFailure(supabase, items, error.message)
-    return { senderId, senderEmail, sent: 0, failed: items.length, batchSize: 0 }
+  }
+
+  return { 
+    senderId, 
+    senderEmail, 
+    sent: totalSent, 
+    failed: totalFailed, 
+    batchSize: totalSent + totalFailed 
   }
 }
 
@@ -514,29 +584,216 @@ async function checkScheduledCampaigns(supabase: any) {
       console.log(`▶️  Starting campaign "${campaign.name}" (scheduled for ${campaign.scheduled_at})`)
       
       try {
-        // Call start-campaign function - exactly like "Avvia Ora" does
-        const startCampaignUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/start-campaign`
-        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+        console.log(`🚀 Starting campaign "${campaign.name}" automatically (scheduled for ${campaign.scheduled_at})`)
         
-        const response = await fetch(startCampaignUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${serviceRoleKey}`
-          },
-          body: JSON.stringify({ 
-            campaignId: campaign.id,
-            startImmediately: true // Same as "Avvia Ora"
-          })
-        })
+        // Replica la logica del tasto "Avvia Ora" direttamente qui
+        // 1. Recupera i dettagli della campagna
+        const { data: campaignDetails, error: campaignError } = await supabase
+          .from('campaigns')
+          .select('*')
+          .eq('id', campaign.id)
+          .single()
 
-        if (!response.ok) {
-          const errorData = await response.text()
-          throw new Error(`Start-campaign failed: ${response.status} ${errorData}`)
+        if (campaignError || !campaignDetails) {
+          throw new Error(`Campaign not found: ${campaignError?.message}`)
         }
 
-        const result = await response.json()
-        console.log(`✅ Campaign "${campaign.name}" started via start-campaign:`, result)
+        // 2. Recupera i mittenti associati
+        const { data: sendersRes, error: sendersError } = await supabase
+          .from('campaign_senders')
+          .select('sender_id')
+          .eq('campaign_id', campaign.id)
+
+        if (sendersError || !sendersRes?.length) {
+          throw new Error('No senders associated with this campaign')
+        }
+
+        // 3. Recupera i mittenti attivi
+        const senderIds = sendersRes.map(s => s.sender_id)
+        const { data: senders, error: sendersDataError } = await supabase
+          .from('senders')
+          .select('*')
+          .in('id', senderIds)
+          .eq('is_active', true)
+
+        if (sendersDataError || !senders?.length) {
+          throw new Error('No active senders found')
+        }
+
+        // 4. Recupera i gruppi della campagna
+        let campaignGroups: any[] = []
+        
+        try {
+          if (campaignDetails.selected_groups) {
+            const groupsData = typeof campaignDetails.selected_groups === 'string' 
+              ? JSON.parse(campaignDetails.selected_groups) 
+              : campaignDetails.selected_groups
+            
+            if (groupsData && groupsData.groups && Array.isArray(groupsData.groups)) {
+              campaignGroups = groupsData.groups.map((group: any) => ({
+                group_id: group.groupId,
+                percentage_start: group.percentageStart || 0,
+                percentage_end: group.percentageEnd || 100
+              }))
+            }
+          }
+        } catch (parseError) {
+          console.error('Error parsing selected_groups:', parseError)
+        }
+        
+        // Fallback: prova a leggere dalla tabella campaign_groups se il JSON è vuoto
+        if (!campaignGroups.length) {
+          const { data: legacyGroups, error: groupsError } = await supabase
+            .from('campaign_groups')
+            .select('group_id, percentage_start, percentage_end')
+            .eq('campaign_id', campaign.id)
+          
+          if (!groupsError && legacyGroups?.length) {
+            campaignGroups = legacyGroups
+          }
+        }
+
+        if (!campaignGroups?.length) {
+          throw new Error('No recipient groups selected')
+        }
+
+        // 5. Recupera tutti i contatti dai gruppi
+        const allContacts: any[] = []
+        
+        for (const group of campaignGroups) {
+          // Determina se le percentuali sono abilitate
+          const percentageEnabled = group.percentage_start !== null && group.percentage_end !== null
+          
+          // Recupera i contact_id del gruppo
+          const { data: contactGroups, error: groupError } = await supabase
+            .from('contact_groups')
+            .select('contact_id')
+            .eq('group_id', group.group_id)
+            .order('contact_id')
+
+          if (groupError || !contactGroups?.length) {
+            console.warn(`No contacts found in group ${group.group_id}`)
+            continue
+          }
+
+          // Recupera tutti i contatti (attivi e non attivi) usando paginazione per grandi gruppi
+          const contactIds = contactGroups.map(cg => cg.contact_id)
+          let allContactsInGroup: any[] = []
+          
+          // Se ci sono molti contatti, usa paginazione (ridotto per evitare 414 errors)
+          if (contactIds.length > 100) {
+            console.log(`📧 Processing large group with ${contactIds.length} contacts, using pagination...`)
+            
+            for (let i = 0; i < contactIds.length; i += 100) {
+              const batchIds = contactIds.slice(i, i + 100)
+              const { data: batchContacts, error: batchError } = await supabase
+                .from('contacts')
+                .select('*')
+                .in('id', batchIds)
+              
+              if (batchError) {
+                console.error(`Error fetching contacts batch ${i/100 + 1}:`, batchError)
+                continue
+              }
+              
+              if (batchContacts) {
+                allContactsInGroup.push(...batchContacts)
+              }
+            }
+          } else {
+            // Per gruppi piccoli, usa query normale
+            const { data: contacts, error: contactsError } = await supabase
+              .from('contacts')
+              .select('*')
+              .in('id', contactIds)
+
+            if (contactsError) {
+              console.warn(`Error fetching contacts for group ${group.group_id}:`, contactsError)
+              continue
+            }
+            
+            if (contacts) {
+              allContactsInGroup = contacts
+            }
+          }
+
+          if (!allContactsInGroup.length) {
+            console.warn(`No contacts found in group ${group.group_id}`)
+            continue
+          }
+
+          let validContacts = allContactsInGroup
+
+          // Applica filtro percentuale se abilitato
+          if (percentageEnabled) {
+            const startIndex = Math.floor(((group.percentage_start ?? 0) / 100) * allContactsInGroup.length)
+            const endIndex = Math.ceil(((group.percentage_end ?? 100) / 100) * allContactsInGroup.length)
+            validContacts = allContactsInGroup.slice(startIndex, endIndex)
+          }
+
+          allContacts.push(...validContacts)
+        }
+
+        if (allContacts.length === 0) {
+          throw new Error('No contacts found for the selected groups')
+        }
+
+        console.log(`📧 Found ${allContacts.length} contacts for campaign "${campaign.name}"`)
+
+        // 6. Prepara le entry per la coda con intervalli di batch
+        const queueEntries: any[] = []
+        const now = new Date()
+        
+        // Recupera le impostazioni di batch dalla campagna
+        const emailsPerBatch = campaignDetails.emails_per_batch || 10
+        const batchIntervalMinutes = campaignDetails.batch_interval_minutes || 5
+        
+        console.log(`📦 Batch config: ${emailsPerBatch} emails per batch, ${batchIntervalMinutes} minutes interval`)
+
+        for (let i = 0; i < allContacts.length; i++) {
+          const contact = allContacts[i]
+          const sender = senders[i % senders.length] // Cicla tra i mittenti
+          
+          // Calcola l'orario di invio basato sul batch
+          const batchNumber = Math.floor(i / emailsPerBatch)
+          const scheduledTime = new Date(now.getTime() + (batchNumber * batchIntervalMinutes * 60 * 1000))
+          
+          queueEntries.push({
+            campaign_id: campaign.id,
+            contact_id: contact.id,
+            sender_id: sender.id,
+            status: 'pending',
+            scheduled_for: scheduledTime.toISOString(),
+            retry_count: 0,
+          })
+        }
+
+        // 7. Pulisci la coda precedente
+        await supabase.from('campaign_queues').delete().eq('campaign_id', campaign.id)
+
+        // 8. Inserisci le nuove entry nella coda
+        const { error: insertError } = await supabase
+          .from('campaign_queues')
+          .insert(queueEntries)
+
+        if (insertError) {
+          throw new Error(`Error inserting queue entries: ${insertError.message}`)
+        }
+
+        // 9. Aggiorna lo status della campagna a 'sending'
+        const { error: updateError } = await supabase
+          .from('campaigns')
+          .update({ 
+            status: 'sending',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', campaign.id)
+
+        if (updateError) {
+          throw new Error(`Error updating campaign status: ${updateError.message}`)
+        }
+
+        console.log(`✅ Campaign "${campaign.name}" started successfully with ${queueEntries.length} emails queued`)
 
         // Log the automatic start
         await supabase
@@ -547,7 +804,9 @@ async function checkScheduledCampaigns(supabase: any) {
             event_data: {
               started_at: new Date().toISOString(),
               trigger: 'automatic_scheduler',
-              result: result
+              scheduled_for: campaign.scheduled_at,
+              emails_queued: queueEntries.length,
+              contacts_found: allContacts.length
             }
           })
 

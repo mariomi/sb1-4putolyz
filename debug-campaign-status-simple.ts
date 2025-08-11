@@ -1,207 +1,131 @@
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { createClient } from '@supabase/supabase-js'
 
-// CORS headers semplici
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS'
-}
+// Initialize Supabase client
+const supabaseUrl = 'https://xqsjyvqikrvibyluynwv.supabase.co'
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhxc2p5dnFpa3J2aWJ5bHV5bnd2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczNTI5NzE5OSwiZXhwIjoyMDUwODczMTk5fQ.Ej8Ej8Ej8Ej8Ej8Ej8Ej8Ej8Ej8Ej8Ej8Ej8Ej8Ej8'
 
-Deno.serve(async (req: Request) => {
-  // Gestione CORS
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
+const supabase = createClient(supabaseUrl, supabaseKey)
 
+async function debugCampaignStatus() {
+  console.log('🔍 Debugging campaign status...')
+  
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    )
-
-    let body = {}
-    try {
-      body = await req.json()
-    } catch (e) {
-      // Se non c'è body JSON, usa oggetto vuoto
+    // 1. Check if there are any campaigns
+    console.log('\n1. Checking campaigns...')
+    const { data: campaigns, error: campaignsError } = await supabase
+      .from('campaigns')
+      .select('*')
+      .limit(5)
+    
+    if (campaignsError) {
+      console.error('❌ Error fetching campaigns:', campaignsError)
+    } else {
+      console.log(`✅ Found ${campaigns?.length || 0} campaigns`)
+      campaigns?.forEach(campaign => {
+        console.log(`   - ${campaign.name} (ID: ${campaign.id}, Status: ${campaign.status})`)
+      })
     }
 
-    const campaignId = (body as any).campaignId
-
-    console.log('🔍 DEBUGGING CAMPAIGN STATUS')
+    // 2. Check if there are any groups
+    console.log('\n2. Checking groups...')
+    const { data: groups, error: groupsError } = await supabase
+      .from('groups')
+      .select('*')
+      .limit(5)
     
-    if (campaignId) {
-      console.log(`🎯 Debugging campaign: ${campaignId}`)
-      
-      // 1. Stato della campagna
-      const { data: campaign, error: campaignError } = await supabase
-        .from('campaigns')
-        .select('*')
-        .eq('id', campaignId)
-        .single()
-
-      if (campaignError) {
-        throw new Error(`Campaign not found: ${campaignError.message}`)
-      }
-
-      // 2. Tutte le email nella coda
-      const { data: allEmails, error: emailsError } = await supabase
-        .from('campaign_queues')
-        .select('id, status, scheduled_for, contact_id, sender_id, sent_at, error_message')
-        .eq('campaign_id', campaignId)
-        .order('scheduled_for')
-
-      if (emailsError) {
-        throw new Error(`Failed to fetch emails: ${emailsError.message}`)
-      }
-
-      // 3. Statistiche
-      const emails = allEmails || []
-      const stats = {
-        pending: emails.filter(e => e.status === 'pending').length,
-        processing: emails.filter(e => e.status === 'processing').length,
-        sent: emails.filter(e => e.status === 'sent').length,
-        failed: emails.filter(e => e.status === 'failed').length,
-        total: emails.length
-      }
-
-      // 4. Email future vs ready
-      const now = new Date()
-      const futureEmails = emails.filter(e => 
-        e.status === 'pending' && new Date(e.scheduled_for) > now
-      )
-      const readyEmails = emails.filter(e => 
-        e.status === 'pending' && new Date(e.scheduled_for) <= now
-      )
-
-      // 5. Raggruppa per orario
-      const emailsByTime: Record<string, any[]> = {}
-      emails.forEach(email => {
-        const time = new Date(email.scheduled_for).toLocaleString('it-IT')
-        if (!emailsByTime[time]) emailsByTime[time] = []
-        emailsByTime[time].push(email)
-      })
-
-      const timeGroups = Object.entries(emailsByTime).map(([time, emails]) => {
-        const statuses: Record<string, number> = {}
-        emails.forEach(e => {
-          statuses[e.status] = (statuses[e.status] || 0) + 1
-        })
-        return { time, count: emails.length, statuses }
-      })
-
-      // 6. Diagnosi
-      const issues = []
-      if (campaign.status === 'sending' && stats.total === 0) {
-        issues.push('🚨 PROBLEMA: Campagna in sending ma nessuna email in coda!')
-      }
-      if (campaign.status === 'sending' && stats.pending === 0 && stats.processing === 0) {
-        if (stats.sent === stats.total) {
-          issues.push('✅ DOVREBBE ESSERE COMPLETATA: Tutte le email sono state inviate')
-        } else {
-          issues.push('🚨 PROBLEMA: Nessuna email pending ma non tutte sono state inviate')
-        }
-      }
-      if (futureEmails.length > 0) {
-        issues.push(`⏳ OK: ${futureEmails.length} email programmate per il futuro`)
-      }
-      if (readyEmails.length > 0) {
-        issues.push(`🔥 ATTENZIONE: ${readyEmails.length} email pronte ma non inviate`)
-      }
-      if (issues.length === 0) {
-        issues.push('✅ Tutto sembra normale')
-      }
-
-      const result = {
-        campaign: {
-          id: campaign.id,
-          name: campaign.name,
-          status: campaign.status,
-          emails_per_batch: campaign.emails_per_batch,
-          batch_interval_minutes: campaign.batch_interval_minutes,
-          start_date: campaign.start_date,
-          start_time_of_day: campaign.start_time_of_day
-        },
-        statistics: stats,
-        queue_analysis: {
-          ready_now: readyEmails.length,
-          scheduled_future: futureEmails.length,
-          next_batch_time: futureEmails.length > 0 ? 
-            new Date(Math.min(...futureEmails.map(e => new Date(e.scheduled_for).getTime()))).toLocaleString('it-IT') 
-            : null
-        },
-        emails_by_time: timeGroups,
-        should_be_completed: stats.pending === 0 && stats.processing === 0,
-        problem_diagnosis: issues
-      }
-
-      return new Response(JSON.stringify(result, null, 2), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      })
-
+    if (groupsError) {
+      console.error('❌ Error fetching groups:', groupsError)
     } else {
-      // Debug generale
-      console.log('📊 Debugging all active campaigns')
-      
-      const { data: activeCampaigns, error: campaignsError } = await supabase
-        .from('campaigns')
-        .select('id, name, status')
-        .eq('status', 'sending')
+      console.log(`✅ Found ${groups?.length || 0} groups`)
+      groups?.forEach(group => {
+        console.log(`   - ${group.name} (ID: ${group.id})`)
+      })
+    }
 
-      if (campaignsError) {
-        throw new Error(`Failed to fetch campaigns: ${campaignsError.message}`)
-      }
+    // 3. Check if there are any contacts
+    console.log('\n3. Checking contacts...')
+    const { data: contacts, error: contactsError } = await supabase
+      .from('contacts')
+      .select('*')
+      .limit(5)
+    
+    if (contactsError) {
+      console.error('❌ Error fetching contacts:', contactsError)
+    } else {
+      console.log(`✅ Found ${contacts?.length || 0} contacts`)
+      contacts?.forEach(contact => {
+        console.log(`   - ${contact.first_name} ${contact.last_name} (${contact.email})`)
+      })
+    }
 
-      const campaignStats = []
-      for (const campaign of (activeCampaigns || [])) {
-        const { count: totalCount } = await supabase
-          .from('campaign_queues')
-          .select('*', { count: 'exact', head: true })
-          .eq('campaign_id', campaign.id)
+    // 4. Check if there are any contact_groups relationships
+    console.log('\n4. Checking contact_groups relationships...')
+    const { data: contactGroups, error: contactGroupsError } = await supabase
+      .from('contact_groups')
+      .select('*')
+      .limit(10)
+    
+    if (contactGroupsError) {
+      console.error('❌ Error fetching contact_groups:', contactGroupsError)
+    } else {
+      console.log(`✅ Found ${contactGroups?.length || 0} contact-group relationships`)
+      contactGroups?.forEach(cg => {
+        console.log(`   - Contact ${cg.contact_id} -> Group ${cg.group_id}`)
+      })
+    }
 
-        const { count: pendingCount } = await supabase
-          .from('campaign_queues')
-          .select('*', { count: 'exact', head: true })
-          .eq('campaign_id', campaign.id)
-          .eq('status', 'pending')
+    // 5. Check if there are any campaign_groups relationships
+    console.log('\n5. Checking campaign_groups relationships...')
+    const { data: campaignGroups, error: campaignGroupsError } = await supabase
+      .from('campaign_groups')
+      .select('*')
+      .limit(10)
+    
+    if (campaignGroupsError) {
+      console.error('❌ Error fetching campaign_groups:', campaignGroupsError)
+    } else {
+      console.log(`✅ Found ${campaignGroups?.length || 0} campaign-group relationships`)
+      campaignGroups?.forEach(cg => {
+        console.log(`   - Campaign ${cg.campaign_id} -> Group ${cg.group_id}`)
+      })
+    }
 
-        const { count: sentCount } = await supabase
-          .from('campaign_queues')
-          .select('*', { count: 'exact', head: true })
-          .eq('campaign_id', campaign.id)
-          .eq('status', 'sent')
+    // 6. Check if there are any senders
+    console.log('\n6. Checking senders...')
+    const { data: senders, error: sendersError } = await supabase
+      .from('senders')
+      .select('*')
+      .limit(5)
+    
+    if (sendersError) {
+      console.error('❌ Error fetching senders:', sendersError)
+    } else {
+      console.log(`✅ Found ${senders?.length || 0} senders`)
+      senders?.forEach(sender => {
+        console.log(`   - ${sender.email_from} (${sender.domain}) - Active: ${sender.is_active}`)
+      })
+    }
 
-        campaignStats.push({
-          ...campaign,
-          total_emails: totalCount || 0,
-          pending_emails: pendingCount || 0,
-          sent_emails: sentCount || 0,
-          should_be_completed: (pendingCount || 0) === 0
-        })
-      }
-
-      const result = {
-        active_campaigns: campaignStats,
-        summary: {
-          total_active: activeCampaigns?.length || 0,
-          campaigns_that_should_be_completed: campaignStats.filter(c => c.should_be_completed).length
-        }
-      }
-
-      return new Response(JSON.stringify(result, null, 2), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    // 7. Check if there are any campaign_senders relationships
+    console.log('\n7. Checking campaign_senders relationships...')
+    const { data: campaignSenders, error: campaignSendersError } = await supabase
+      .from('campaign_senders')
+      .select('*')
+      .limit(10)
+    
+    if (campaignSendersError) {
+      console.error('❌ Error fetching campaign_senders:', campaignSendersError)
+    } else {
+      console.log(`✅ Found ${campaignSenders?.length || 0} campaign-sender relationships`)
+      campaignSenders?.forEach(cs => {
+        console.log(`   - Campaign ${cs.campaign_id} -> Sender ${cs.sender_id}`)
       })
     }
 
   } catch (error) {
-    console.error('💥 Debug error:', error)
-    
-    return new Response(JSON.stringify({ 
-      success: false, 
-      error: error.message 
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    })
+    console.error('❌ Unexpected error:', error)
   }
-})
+}
+
+// Run the debug function
+debugCampaignStatus()

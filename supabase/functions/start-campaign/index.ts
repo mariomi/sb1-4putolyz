@@ -1,273 +1,441 @@
-// Percorso del file: supabase/functions/start-campaign/index.ts
-// VERSIONE CORRETTA CHE USA IL SISTEMA DI CODE
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
-// CORS headers
+// Header CORS per permettere le chiamate dal frontend
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Max-Age': '86400',
+  'Access-Control-Allow-Credentials': 'true',
+};
 
-// --- FUNZIONE CORRETTA CHE USA IL SISTEMA DI CODE ---
-async function startCampaignExecution(supabaseAdmin: SupabaseClient, campaignId: string, startImmediately: boolean = false) {
-  console.log(`[EXEC] Starting campaign execution for ID: ${campaignId}`);
+Deno.serve(async (req: Request) => {
+  console.log(`🚀 Edge Function called with method: ${req.method}`);
+  console.log(`📡 Request URL: ${req.url}`);
+  
+  // Abilita CORS per tutte le richieste
+  if (req.method === 'OPTIONS') {
+    console.log(`✅ Handling CORS preflight request`);
+    return new Response('', {
+      status: 200,
+      headers: corsHeaders,
+    });
+  }
 
   try {
-    // 1. Verifica che la campagna esista e sia in stato draft
-    const { data: campaign, error: campaignError } = await supabaseAdmin
+    // Estrai il token dall'intestazione Authorization
+    const authHeader = req.headers.get('Authorization');
+    console.log(`🔑 Auth header: ${authHeader ? 'Present' : 'Missing'}`);
+    
+    let supabase: any;
+    let user: any = null;
+    
+    // Controlla se è una chiamata con service role key (per avvio automatico)
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.split('Bearer ')[1];
+      
+      // Verifica se è un service role key confrontando con la variabile d'ambiente
+      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      
+      if (token === serviceRoleKey) {
+        console.log(`🔧 Service role authentication detected`);
+        
+        // Crea il client Supabase con il service role key
+        supabase = createClient(
+          Deno.env.get('SUPABASE_URL')!,
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+        );
+        
+        // Per le chiamate service role, non verifichiamo l'utente specifico
+        // ma usiamo un utente di sistema
+        user = { id: 'system', email: 'system@automatic' };
+      } else {
+        // Se non è un service role token, procedi con autenticazione normale
+        console.log(`🔑 Regular JWT authentication detected`);
+        
+        // Crea il client Supabase con il token dell'utente
+        supabase = createClient(
+          Deno.env.get('SUPABASE_URL')!,
+          Deno.env.get('SUPABASE_ANON_KEY')!,
+          {
+            global: { headers: { Authorization: `Bearer ${token}` } },
+          }
+        );
+
+        // Verifica che l'utente sia autenticato
+        const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+        
+        if (authError || !authUser) {
+          console.error('❌ Authentication error:', authError);
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              error: 'Unauthorized - Invalid token' 
+            }),
+            { 
+              status: 401,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          );
+        }
+        
+        user = authUser;
+        console.log(`✅ User authenticated: ${user.email}`);
+      }
+    } else {
+      // Nessun header di autorizzazione
+      console.log(`❌ No authorization header provided`);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Missing authorization header' 
+        }),
+        { 
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // Estrai l'ID della campagna dal corpo della richiesta
+    const body = await req.json();
+    console.log(`📦 Request body:`, body);
+    const { campaignId, startImmediately } = body;
+
+    if (!campaignId) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Missing campaignId in request body' 
+        }),
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // 1. Verifica che la campagna sia in stato 'draft' o 'scheduled' e appartenga all'utente
+    const { data: campaign, error: campaignError } = await supabase
       .from('campaigns')
       .select('*')
       .eq('id', campaignId)
+      .in('status', ['draft', 'scheduled'])
       .single();
 
     if (campaignError || !campaign) {
-      throw new Error(`Campaign with ID ${campaignId} not found.`);
+      throw new Error(`Campaign not found or not in draft/scheduled status: ${campaignError?.message}`);
     }
 
-    // Accetta 'draft', 'scheduled' e 'sending' per permettere la riprogrammazione
-    if (campaign.status !== 'draft' && campaign.status !== 'scheduled' && campaign.status !== 'sending') {
-      throw new Error(`Campaign is not in draft, scheduled, or sending status. Current status: ${campaign.status}`);
+    console.log(`🎯 Starting campaign for ID: ${campaignId} (status: ${campaign.status})`);
+    
+    // Log se è un avvio automatico
+    if (campaign.status === 'scheduled') {
+      console.log(`🤖 AUTOMATIC START: Campaign "${campaign.name}" was scheduled for ${campaign.scheduled_at}`);
     }
 
-    // 2. Ottieni i gruppi e mittenti associati alla campagna
-    const [groupsRes, sendersRes] = await Promise.all([
-      supabaseAdmin.from('campaign_groups').select('group_id').eq('campaign_id', campaignId),
-      supabaseAdmin.from('campaign_senders').select('sender_id').eq('campaign_id', campaignId)
-    ]);
+    // Se non è una chiamata service role, verifica che la campagna appartenga all'utente
+    if (!user.id.includes('system')) {
+      const { data: userCampaign, error: userCampaignError } = await supabase
+        .from('campaigns')
+        .select('id')
+        .eq('id', campaignId)
+        .eq('profile_id', user.id)
+        .single();
 
-    if (groupsRes.error || sendersRes.error) {
-      throw new Error('Failed to fetch campaign groups or senders.');
+      if (userCampaignError || !userCampaign) {
+        throw new Error(`Campaign not found or access denied: ${userCampaignError?.message}`);
+      }
     }
 
-    const groupIds = groupsRes.data.map(g => g.group_id);
-    const senderIds = sendersRes.data.map(s => s.sender_id);
+    // 2. Recupera i mittenti associati
+    const { data: sendersRes, error: sendersError } = await supabase
+      .from('campaign_senders')
+      .select('sender_id')
+      .eq('campaign_id', campaignId);
 
-    if (groupIds.length === 0) {
-      throw new Error('No groups associated with this campaign.');
+    if (sendersError || !sendersRes?.length) {
+      throw new Error('No senders associated with this campaign');
     }
 
-    if (senderIds.length === 0) {
-      throw new Error('No senders associated with this campaign.');
-    }
-
-    // 3. Ottieni tutti i contatti dei gruppi associati
-    // Prima ottieni i contact_id dai gruppi
-    const { data: contactGroupsData, error: contactGroupsError } = await supabaseAdmin
-      .from('contact_groups')
-      .select('contact_id')
-      .in('group_id', groupIds);
-
-    if (contactGroupsError) {
-      throw new Error('Failed to fetch contact groups.');
-    }
-
-    const contactIds = contactGroupsData?.map(cg => cg.contact_id) || [];
-
-    if (contactIds.length === 0) {
-      throw new Error('No contacts found in the associated groups.');
-    }
-
-    // Poi ottieni i dettagli dei contatti
-    const { data: contacts, error: contactsError } = await supabaseAdmin
-      .from('contacts')
-      .select('id, email, first_name, last_name, is_active')
-      .in('id', contactIds)
-      .eq('is_active', true);
-
-    if (contactsError) {
-      throw new Error('Failed to fetch contacts.');
-    }
-
-    if (!contacts || contacts.length === 0) {
-      throw new Error('No active contacts found for this campaign.');
-    }
-
-    // 4. Ottieni i dettagli dei mittenti
-    const { data: senders, error: sendersDataError } = await supabaseAdmin
+    // 3. Recupera i mittenti attivi
+    const senderIds = sendersRes.map(s => s.sender_id);
+    const { data: senders, error: sendersDataError } = await supabase
       .from('senders')
       .select('*')
       .in('id', senderIds)
       .eq('is_active', true);
 
-    if (sendersDataError || !senders || senders.length === 0) {
-      throw new Error('No active senders found for this campaign.');
+    if (sendersDataError || !senders?.length) {
+      throw new Error('No active senders found');
     }
 
-    console.log(`[EXEC] Found ${contacts.length} contacts and ${senders.length} senders.`);
+    // 4. Recupera i gruppi della campagna
+    console.log(`🔍 Campaign selected_groups:`, campaign.selected_groups);
+    let campaignGroups: any[] = [];
+    
+    try {
+      if (campaign.selected_groups) {
+        const groupsData = typeof campaign.selected_groups === 'string' 
+          ? JSON.parse(campaign.selected_groups) 
+          : campaign.selected_groups;
+        
+        console.log(`🔍 Parsed groups data:`, groupsData);
+        
+        if (groupsData && groupsData.groups && Array.isArray(groupsData.groups)) {
+          campaignGroups = groupsData.groups.map((group: any) => ({
+            group_id: group.groupId,
+            percentage_start: group.percentageStart || 0,
+            percentage_end: group.percentageEnd || 100
+          }));
+          console.log(`🔍 Mapped campaign groups:`, campaignGroups);
+        }
+      }
+    } catch (parseError) {
+      console.error('Error parsing selected_groups:', parseError);
+    }
+    
+    // Fallback: prova a leggere dalla tabella campaign_groups se il JSON è vuoto
+    if (!campaignGroups.length) {
+      const { data: legacyGroups, error: groupsError } = await supabase
+        .from('campaign_groups')
+        .select('group_id, percentage_start, percentage_end')
+        .eq('campaign_id', campaignId);
+      
+      if (!groupsError && legacyGroups?.length) {
+        campaignGroups = legacyGroups;
+      }
+    }
 
-    // 5. Aggiorna lo status della campagna a 'sending'
-    const { error: updateError } = await supabaseAdmin
+    console.log(`🔍 Final campaign groups count: ${campaignGroups.length}`);
+    
+    if (!campaignGroups?.length) {
+      throw new Error('No recipient groups selected');
+    }
+
+    // 5. Recupera tutti i contatti dai gruppi
+    console.log(`🔍 Starting to fetch contacts from ${campaignGroups.length} groups...`);
+    const allContacts: any[] = [];
+    
+    for (const group of campaignGroups) {
+      // Determina se le percentuali sono abilitate
+      const percentageEnabled = group.percentage_start !== null && group.percentage_end !== null;
+      
+      // Recupera i contact_id del gruppo
+      console.log(`🔍 Fetching contacts for group ${group.group_id}...`);
+      
+      // Prova prima una query semplice per vedere se il gruppo esiste
+      const { count: groupCount, error: countError } = await supabase
+        .from('contact_groups')
+        .select('*', { count: 'exact', head: true })
+        .eq('group_id', group.group_id);
+      
+      if (countError) {
+        console.error(`Error counting contact_groups for group ${group.group_id}:`, countError);
+        continue;
+      }
+      
+      console.log(`📧 Group ${group.group_id} has ${groupCount} contact_groups`);
+      
+      if (!groupCount || groupCount === 0) {
+        console.warn(`No contact_groups found for group ${group.group_id}`);
+        continue;
+      }
+      
+      // Ora recupera i contact_id
+      const { data: contactGroups, error: groupError } = await supabase
+        .from('contact_groups')
+        .select('contact_id')
+        .eq('group_id', group.group_id)
+        .order('contact_id');
+
+      if (groupError) {
+        console.error(`Error fetching contact_groups for group ${group.group_id}:`, groupError);
+        continue;
+      }
+
+      if (!contactGroups?.length) {
+        console.warn(`No contact_groups found for group ${group.group_id}`);
+        continue;
+      }
+
+      console.log(`📧 Found ${contactGroups.length} contact_groups for group ${group.group_id}`);
+
+      // Recupera tutti i contatti (attivi e non attivi) usando paginazione per grandi gruppi
+      const contactIds = contactGroups.map(cg => cg.contact_id);
+      console.log(`📧 Processing ${contactIds.length} contact IDs for group ${group.group_id}`);
+      let allContactsInGroup: any[] = [];
+      
+      // Se ci sono molti contatti, usa paginazione (ridotto per evitare 414 errors)
+      if (contactIds.length > 100) {
+        console.log(`📧 Processing large group with ${contactIds.length} contacts, using pagination...`);
+        
+        for (let i = 0; i < contactIds.length; i += 100) {
+          const batchIds = contactIds.slice(i, i + 100);
+          console.log(`📧 Fetching batch ${i/100 + 1} with ${batchIds.length} IDs...`);
+          
+          const { data: batchContacts, error: batchError } = await supabase
+            .from('contacts')
+            .select('*')
+            .in('id', batchIds);
+          
+          if (batchError) {
+            console.error(`Error fetching contacts batch ${i/100 + 1}:`, batchError);
+            continue;
+          }
+          
+          if (batchContacts) {
+            allContactsInGroup.push(...batchContacts);
+            console.log(`📧 Batch ${i/100 + 1} added ${batchContacts.length} contacts`);
+          }
+        }
+      } else {
+        // Per gruppi piccoli, usa query normale
+        console.log(`📧 Fetching ${contactIds.length} contacts with single query...`);
+        const { data: contacts, error: contactsError } = await supabase
+          .from('contacts')
+          .select('*')
+          .in('id', contactIds);
+
+        if (contactsError) {
+          console.warn(`Error fetching contacts for group ${group.group_id}:`, contactsError);
+          continue;
+        }
+        
+        if (contacts) {
+          allContactsInGroup = contacts;
+          console.log(`📧 Single query returned ${contacts.length} contacts`);
+        }
+      }
+
+      console.log(`✅ Successfully retrieved ${allContactsInGroup.length} contacts for group ${group.group_id}`);
+      
+      if (!allContactsInGroup.length) {
+        console.warn(`No contacts found in group ${group.group_id}`);
+        continue;
+      }
+
+      let validContacts = allContactsInGroup;
+
+      // Applica filtro percentuale se abilitato
+      if (percentageEnabled) {
+        const startIndex = Math.floor(((group.percentage_start ?? 0) / 100) * allContactsInGroup.length);
+        const endIndex = Math.ceil(((group.percentage_end ?? 100) / 100) * allContactsInGroup.length);
+        validContacts = allContactsInGroup.slice(startIndex, endIndex);
+      }
+
+      allContacts.push(...validContacts);
+    }
+
+    if (allContacts.length === 0) {
+      throw new Error('No contacts found for the selected groups');
+    }
+
+    console.log(`📧 Trovati ${allContacts.length} contatti per l'invio`);
+
+    // 6. Prepara le entry per la coda con intervalli di batch
+    const queueEntries: any[] = [];
+    const now = new Date();
+    
+    // Recupera le impostazioni di batch dalla campagna
+    const emailsPerBatch = campaign.emails_per_batch || 10; // Default 10 email per batch
+    const batchIntervalMinutes = campaign.batch_interval_minutes || 5; // Default 5 minuti tra batch
+    
+    console.log(`📦 Configurazione batch: ${emailsPerBatch} email per batch, ${batchIntervalMinutes} minuti di intervallo`);
+    console.log(`🚀 Avvio immediato: ${startImmediately ? 'SÌ' : 'NO'}`);
+
+    for (let i = 0; i < allContacts.length; i++) {
+      const contact = allContacts[i];
+      const sender = senders[i % senders.length]; // Cicla tra i mittenti
+      
+      // Calcola l'orario di invio basato sul batch
+      const batchNumber = Math.floor(i / emailsPerBatch);
+      
+      let scheduledTime;
+      if (startImmediately && batchNumber === 0) {
+        // PRIMO BATCH: Avvio immediato quando richiesto
+        scheduledTime = now;
+        console.log(`📧 Batch ${batchNumber} (email ${i + 1}): INVIO IMMEDIATO`);
+      } else {
+        // BATCH SUCCESSIVI: Segui la schedulazione normale
+        const delayMinutes = startImmediately ? batchNumber : batchNumber;
+        scheduledTime = new Date(now.getTime() + (delayMinutes * batchIntervalMinutes * 60 * 1000));
+        
+        if (batchNumber === 1 && startImmediately) {
+          console.log(`📧 Batch ${batchNumber} (email ${i + 1}): ${batchIntervalMinutes} minuti dopo l'avvio`);
+        }
+      }
+      
+      queueEntries.push({
+        campaign_id: campaignId,
+        contact_id: contact.id,
+        sender_id: sender.id,
+        status: 'pending',
+        scheduled_for: scheduledTime.toISOString(),
+        retry_count: 0,
+      });
+    }
+
+    // 7. Pulisci la coda precedente
+    await supabase.from('campaign_queues').delete().eq('campaign_id', campaignId);
+
+    // 8. Inserisci le nuove entry nella coda
+    const { error: insertError } = await supabase
+      .from('campaign_queues')
+      .insert(queueEntries);
+
+    if (insertError) {
+      throw new Error(`Error inserting queue entries: ${insertError.message}`);
+    }
+
+    // 9. Aggiorna lo status della campagna a 'sending'
+    const { error: updateError } = await supabase
       .from('campaigns')
       .update({ 
-        status: 'sending', 
-        updated_at: new Date().toISOString() 
+        status: 'sending',
+        updated_at: new Date().toISOString()
       })
       .eq('id', campaignId);
 
     if (updateError) {
-      throw new Error('Failed to update campaign status.');
+      throw new Error(`Error updating campaign status: ${updateError.message}`);
     }
 
-    console.log(`[EXEC] Campaign status updated to 'sending'.`);
-
-    // 6. Elimina le email esistenti se la campagna è già in sending
-    if (campaign.status === 'sending') {
-      console.log(`[EXEC] Campaign already in sending status, deleting existing queue entries...`);
-      const { error: deleteError } = await supabaseAdmin
-        .from('campaign_queues')
-        .delete()
-        .eq('campaign_id', campaignId);
-      
-      if (deleteError) {
-        console.error('[EXEC] Error deleting existing queue entries:', deleteError);
-      } else {
-        console.log(`[EXEC] Deleted existing queue entries for campaign ${campaignId}`);
-      }
-    }
-
-    // 7. Calcola i tempi di scheduling - INIZIA ORA se startImmediately=true, altrimenti usa la programmazione
-    const now = new Date();
-    let firstBatchTime;
-    
     if (startImmediately) {
-      // Avvio immediato: inizia subito
-      firstBatchTime = now;
-      console.log(`[EXEC] IMMEDIATE START: Scheduling first batch for NOW: ${firstBatchTime.toISOString()}`);
+      console.log(`✅ Campagna ${campaignId} avviata con PRIMO BATCH IMMEDIATO`);
+      console.log(`📧 ${queueEntries.length} email aggiunte alla coda:`);
+      console.log(`   🚀 Primo batch (${Math.min(emailsPerBatch, queueEntries.length)} email): INVIO IMMEDIATO`);
+      console.log(`   ⏰ Batch successivi: ogni ${batchIntervalMinutes} minuti`);
     } else {
-      // Programmazione normale: usa start_date e start_time_of_day
-      const startDate = new Date(campaign.start_date);
-      const [startHour, startMinute] = campaign.start_time_of_day.split(':').map(Number);
-      startDate.setHours(startHour, startMinute, 0, 0);
-      firstBatchTime = startDate > now ? startDate : now;
-      console.log(`[EXEC] SCHEDULED START: Scheduling first batch for: ${firstBatchTime.toISOString()}`);
+      console.log(`✅ Campagna ${campaignId} preparata per l'invio programmato`);
+      console.log(`📧 ${queueEntries.length} email aggiunte alla coda per processamento`);
     }
-    
-    console.log(`[EXEC] Campaign start_date: ${campaign.start_date}, start_time_of_day: ${campaign.start_time_of_day}`);
 
-    // 8. Crea le entries nella coda per ogni contatto
-    const queueEntries = [];
-    let senderIndex = 0;
-    let batchIndex = 0;
-    const batchSize = campaign.emails_per_batch;
-    const batchIntervalMs = campaign.batch_interval_minutes * 60 * 1000;
-
-    for (let i = 0; i < contacts.length; i += batchSize) {
-      const batch = contacts.slice(i, i + batchSize);
-      const batchTime = new Date(firstBatchTime.getTime() + (batchIndex * batchIntervalMs));
-
-      for (const contact of batch) {
-        const sender = senders[senderIndex % senders.length];
-        
-        queueEntries.push({
-          campaign_id: campaignId,
-          contact_id: contact.id,
-          sender_id: sender.id,
-          status: 'pending',
-          scheduled_for: batchTime.toISOString(),
-          retry_count: 0
-        });
-
-        senderIndex++;
+    // Rispondi immediatamente con successo
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        status: 'started',
+        message: 'Campaign started successfully. Emails are being sent in background.',
+        emailsQueued: queueEntries.length
+      }),
+      { 
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
-      
-      batchIndex++;
-    }
-
-    // 9. Inserisci tutte le entries nella coda
-    const { error: queueError } = await supabaseAdmin
-      .from('campaign_queues')
-      .insert(queueEntries);
-
-    if (queueError) {
-      console.error('[EXEC] Error inserting queue entries:', queueError);
-      // Ripristina lo status a draft se fallisce
-      await supabaseAdmin
-        .from('campaigns')
-        .update({ 
-          status: 'draft', 
-          updated_at: new Date().toISOString() 
-        })
-        .eq('id', campaignId);
-      throw new Error('Failed to create queue entries.');
-    }
-
-    console.log(`[EXEC] Created ${queueEntries.length} queue entries for campaign ${campaignId}.`);
-    console.log(`[EXEC] Campaign ${campaignId} started successfully with queue system.`);
-    
-    // Log dettagliato per debugging
-    console.log(`[EXEC] Campaign details:`, {
-      id: campaignId,
-      name: campaign.name,
-      emails_per_batch: campaign.emails_per_batch,
-      batch_interval_minutes: campaign.batch_interval_minutes,
-      total_contacts: contacts.length,
-      total_senders: senders.length,
-      queue_entries_created: queueEntries.length,
-      first_batch_time: firstBatchTime.toISOString()
-    });
-
+    );
   } catch (error) {
-    console.error(`[EXEC] Error during campaign execution for ${campaignId}:`, error);
-    
-    // Ripristina lo status a draft in caso di errore
-    try {
-      await supabaseAdmin
-        .from('campaigns')
-        .update({ 
-          status: 'draft', 
-          updated_at: new Date().toISOString() 
-        })
-        .eq('id', campaignId);
-    } catch (restoreError) {
-      console.error('[EXEC] Failed to restore campaign status:', restoreError);
-    }
-    
-    throw error;
+    // Gestisci gli errori e restituisci una risposta appropriata
+    console.error('Error in campaign execution:', error);
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: error.message 
+      }),
+      { 
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      }
+    );
   }
-}
-
-// --- LA FUNZIONE PRINCIPALE CON CORS CORRETTO ---
-console.log(`🚀 Function "start-campaign" up and running!`);
-
-Deno.serve(async (req) => {
-  // Gestione CORS per preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
-
-  try {
-    const { campaignId, startImmediately } = await req.json()
-
-    if (!campaignId) {
-      throw new Error('Missing campaignId in request body')
-    }
-
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    )
-
-    // Chiama la funzione corretta che usa il sistema di code
-    await startCampaignExecution(supabaseAdmin, campaignId, startImmediately)
-
-    return new Response(JSON.stringify({ 
-      success: true,
-      message: `Campaign ${campaignId} started successfully` 
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
-    })
-
-  } catch (error) {
-    console.error('Error in start-campaign function:', error)
-    return new Response(JSON.stringify({ 
-      success: false,
-      error: error.message 
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
-    })
-  }
-})
+});

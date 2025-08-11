@@ -61,21 +61,31 @@ export function GroupsPage() {
   const fetchGroups = async () => {
     setLoading(true)
     try {
-      // Get groups with contact counts
+      // Get groups with accurate contact counts
       const { data: groupsData, error } = await supabase
         .from('groups')
         .select(`
           *,
-          contact_groups(count)
+          contact_groups!inner(
+            contact_id,
+            contacts!inner(id, is_active)
+          )
         `)
         .order('created_at', { ascending: false })
 
       if (error) throw error
 
-      const groupsWithCounts = groupsData?.map(group => ({
-        ...group,
-        contact_count: group.contact_groups?.[0]?.count || 0
-      })) || []
+      const groupsWithCounts = groupsData?.map(group => {
+        // Count only active contacts in this group
+        const activeContacts = group.contact_groups?.filter(cg => 
+          cg.contacts?.is_active === true
+        ) || []
+        
+        return {
+          ...group,
+          contact_count: activeContacts.length
+        }
+      }) || []
 
       setGroups(groupsWithCounts)
     } catch (error: any) {
@@ -240,17 +250,8 @@ export function GroupsPage() {
           : contact
       ))
 
-      // Update group count in the main list
-      setGroups(prev => prev.map(group => 
-        group.id === selectedGroup.id
-          ? { 
-              ...group, 
-              contact_count: currentlyAssigned 
-                ? group.contact_count - 1 
-                : group.contact_count + 1 
-            }
-          : group
-      ))
+      // Refresh the entire groups list to get accurate counts
+      await fetchGroups()
 
     } catch (error: any) {
       console.error('Error toggling contact assignment:', error)
@@ -297,12 +298,8 @@ export function GroupsPage() {
       // Refresh contacts list
       await fetchContactsForGroup(selectedGroup.id)
       
-      // Update group count
-      setGroups(prev => prev.map(group => 
-        group.id === selectedGroup.id
-          ? { ...group, contact_count: group.contact_count + 1 }
-          : group
-      ))
+      // Refresh the entire groups list to get accurate counts
+      await fetchGroups()
 
     } catch (error: any) {
       console.error('Error creating contact:', error)

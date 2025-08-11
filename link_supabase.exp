@@ -1,0 +1,9 @@
+#!/usr/bin/expect -f
+
+set timeout 30
+spawn supabase link --project-ref xqsjyvqikrvibyluynwv
+
+expect "Enter your database password:"
+send "Zuvmud-vizso9-teczik\r"
+
+expect eof
