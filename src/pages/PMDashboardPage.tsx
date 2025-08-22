@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { 
+import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Area, AreaChart
 } from 'recharts'
-import { 
-  RefreshCw, Download, Calendar, TrendingUp, Users, FolderOpen, 
+import {
+  RefreshCw, Download, Calendar, TrendingUp, Users, FolderOpen,
   CheckCircle, Clock, AlertTriangle, BarChart3, FileText, UserCheck,
-  Home, FolderOpen as ProjectsIcon, Users as OperatorsIcon, BarChart3 as ReportsIcon
+  Home, FolderOpen as ProjectsIcon, Users as OperatorsIcon, BarChart3 as ReportsIcon, Settings
 } from 'lucide-react'
 import Logo from '/Logo.svg'
 
@@ -58,7 +58,8 @@ const COLORS = ['#2C8EFF', '#00C48C', '#FFA726', '#F64C38', '#002F6C']
 
 export function PMDashboardPage() {
   const navigate = useNavigate()
-  const { signOut } = useAuth()
+  // Simulating useAuth hook for standalone component
+  const signOut = async () => console.log('Signing out...')
   const [timeRange, setTimeRange] = useState('week')
   const [sortBy, setSortBy] = useState('workload')
   const [activeSection, setActiveSection] = useState('dashboard')
@@ -76,10 +77,6 @@ export function PMDashboardPage() {
   const handleRefresh = () => {
     // Implementation for refresh functionality
     console.log('Refreshing data')
-  }
-
-  const navigateToPage = (page: string) => {
-    navigate(page)
   }
 
   const getStatusColor = (status: string) => {
@@ -106,6 +103,20 @@ export function PMDashboardPage() {
       default: return 0
     }
   })
+  
+  const NavButton = ({ section, label, icon: Icon }: { section: string, label: string, icon: React.ElementType }) => (
+    <button
+      onClick={() => setActiveSection(section)}
+      className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${
+        activeSection === section 
+          ? 'bg-[#2C8EFF] text-white shadow-lg' 
+          : 'text-white hover:bg-[#1a4a8a] hover:text-[#2C8EFF]'
+      }`}
+    >
+      <Icon className="w-5 h-5 mr-3" />
+      {label}
+    </button>
+  );
 
   return (
     <div className="flex h-screen bg-[#F5F7FA]">
@@ -117,53 +128,11 @@ export function PMDashboardPage() {
         
         <nav className="mt-8 flex-1 px-4">
           <div className="space-y-2">
-            <button
-              onClick={() => setActiveSection('dashboard')}
-              className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${
-                activeSection === 'dashboard' 
-                  ? 'bg-[#2C8EFF] text-white shadow-lg' 
-                  : 'text-white hover:bg-[#1a4a8a] hover:text-[#2C8EFF]'
-              }`}
-            >
-              <Home className="w-5 h-5 mr-3" />
-              Dashboard
-            </button>
-            
-            <button
-              onClick={() => navigateToPage('/pm-projects')}
-              className="w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 text-white hover:bg-[#1a4a8a] hover:text-[#2C8EFF]"
-            >
-              <ProjectsIcon className="w-5 h-5 mr-3" />
-              Progetti
-            </button>
-            
-            <button
-              onClick={() => navigateToPage('/pm-operators')}
-              className="w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 text-white hover:bg-[#1a4a8a] hover:text-[#2C8EFF]"
-            >
-              <OperatorsIcon className="w-5 h-5 mr-3" />
-              Operatori
-            </button>
-            
-            <button
-              onClick={() => navigateToPage('/pm-reports')}
-              className="w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 text-white hover:bg-[#1a4a8a] hover:text-[#2C8EFF]"
-            >
-              <ReportsIcon className="w-5 h-5 mr-3" />
-              Report
-            </button>
-            
-            <button
-              onClick={() => setActiveSection('settings')}
-              className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${
-                activeSection === 'settings' 
-                  ? 'bg-[#2C8EFF] text-white shadow-lg' 
-                  : 'text-white hover:bg-[#1a4a8a] hover:text-[#2C8EFF]'
-              }`}
-            >
-              <BarChart3 className="w-5 h-5 mr-3" />
-              Impostazioni
-            </button>
+            <NavButton section="dashboard" label="Dashboard" icon={Home} />
+            <NavButton section="projects" label="Progetti" icon={ProjectsIcon} />
+            <NavButton section="operators" label="Operatori" icon={OperatorsIcon} />
+            <NavButton section="reports" label="Report" icon={ReportsIcon} />
+            <NavButton section="settings" label="Impostazioni" icon={Settings} />
           </div>
         </nav>
       </div>
@@ -233,156 +202,180 @@ export function PMDashboardPage() {
             <>
               {/* KPI Section */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
-            {mockKPIData.map((kpi, index) => {
-              const IconComponent = kpi.icon
-              return (
-                <div key={index} className="bg-white rounded-2xl shadow-md border border-gray-100 p-6 hover:shadow-lg transition-shadow duration-200">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-[#333333]">{kpi.title}</p>
-                      <p className="text-3xl font-bold text-[#002F6C] mt-2">{kpi.value}</p>
-                      <p className={`text-sm mt-1 font-semibold ${kpi.changeColor}`}>{kpi.change}</p>
+                {mockKPIData.map((kpi, index) => {
+                  const IconComponent = kpi.icon
+                  return (
+                    <div key={index} className="bg-white rounded-2xl shadow-md border border-gray-100 p-6 hover:shadow-lg transition-shadow duration-200">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-[#333333]">{kpi.title}</p>
+                          <p className="text-3xl font-bold text-[#002F6C] mt-2">{kpi.value}</p>
+                          <p className={`text-sm mt-1 font-semibold ${kpi.changeColor}`}>{kpi.change}</p>
+                        </div>
+                        <div className={`p-4 rounded-2xl ${kpi.color}`}>
+                          <IconComponent className="w-6 h-6 text-white" />
+                        </div>
+                      </div>
                     </div>
-                    <div className={`p-4 rounded-2xl ${kpi.color}`}>
-                      <IconComponent className="w-6 h-6 text-white" />
-                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                {/* Project Overview Section */}
+                <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+                  <h3 className="text-xl font-bold text-[#002F6C] mb-6">Project Overview</h3>
+                  <div className="space-y-4">
+                    {mockProjects.map((project, index) => (
+                      <div key={index} className="p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-colors duration-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="font-semibold text-[#002F6C]">{project.name}</h4>
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
+                            {project.status}
+                          </span>
+                        </div>
+                        <p className="text-sm text-[#333333] mb-3">
+                          Manager: {project.manager} • Operatori: {project.operators}
+                        </p>
+                        <div className="flex items-center">
+                          <div className="flex-1 bg-gray-200 rounded-full h-2 mr-3">
+                            <div 
+                              className="bg-[#2C8EFF] h-2 rounded-full transition-all duration-300" 
+                              style={{ width: `${project.progress}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-sm font-medium text-[#333333]">{project.progress}%</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              )
-            })}
-          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-            {/* Project Overview Section */}
-            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
-              <h3 className="text-xl font-bold text-[#002F6C] mb-6">Project Overview</h3>
-              <div className="space-y-4">
-                {mockProjects.map((project, index) => (
-                  <div key={index} className="p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-colors duration-200">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-semibold text-[#002F6C]">{project.name}</h4>
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
-                        {project.status}
-                      </span>
-                    </div>
-                    <p className="text-sm text-[#333333] mb-3">
-                      Manager: {project.manager} • Operatori: {project.operators}
-                    </p>
-                    <div className="flex items-center">
-                      <div className="flex-1 bg-gray-200 rounded-full h-2 mr-3">
-                        <div 
-                          className="bg-[#2C8EFF] h-2 rounded-full transition-all duration-300" 
-                          style={{ width: `${project.progress}%` }}
-                        ></div>
+                {/* Operator Workload Section */}
+                <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-bold text-[#002F6C]">Operator Workload</h3>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      className="px-3 py-1 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2C8EFF] focus:border-[#2C8EFF] text-[#333333]"
+                    >
+                      <option value="workload">Per Carico</option>
+                      <option value="name">Per Nome</option>
+                      <option value="assigned">Per Task</option>
+                    </select>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {sortedOperators.map((operator, index) => (
+                      <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors duration-200">
+                        <div className="flex-1">
+                          <p className="font-medium text-[#333333]">{operator.name}</p>
+                          <p className="text-sm text-[#666666]">
+                            {operator.completed}/{operator.assigned} task completati
+                          </p>
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getWorkloadColor(operator.workload)}`}>
+                          {operator.workload}%
+                        </span>
                       </div>
-                      <span className="text-sm font-medium text-[#333333]">{project.progress}%</span>
-                    </div>
+                    ))}
                   </div>
-                ))}
+                </div>
               </div>
-            </div>
 
-            {/* Operator Workload Section */}
-            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold text-[#002F6C]">Operator Workload</h3>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="px-3 py-1 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2C8EFF] focus:border-[#2C8EFF] text-[#333333]"
-                >
-                  <option value="workload">Per Carico</option>
-                  <option value="name">Per Nome</option>
-                  <option value="assigned">Per Task</option>
-                </select>
+              {/* Recent Assignments Timeline */}
+              <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6 mb-8">
+                <h3 className="text-xl font-bold text-[#002F6C] mb-6">Assegnazioni Recenti</h3>
+                <div className="space-y-4">
+                  {mockAssignments.map((assignment, index) => {
+                    const IconComponent = assignment.icon
+                    return (
+                      <div key={index} className="flex items-start space-x-4">
+                        <div className="flex-shrink-0 w-10 h-10 bg-[#2C8EFF] rounded-full flex items-center justify-center">
+                          <IconComponent className="w-5 h-5 text-white" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#333333]">{assignment.description}</p>
+                          <p className="text-sm text-[#666666]">{assignment.time}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-              
-              <div className="space-y-4">
-                {sortedOperators.map((operator, index) => (
-                  <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors duration-200">
-                    <div className="flex-1">
-                      <p className="font-medium text-[#333333]">{operator.name}</p>
-                      <p className="text-sm text-[#666666]">
-                        {operator.completed}/{operator.assigned} task completati
-                      </p>
-                    </div>
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getWorkloadColor(operator.workload)}`}>
-                      {operator.workload}%
-                    </span>
-                  </div>
-                ))}
+
+              {/* Advanced Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* TTR Trend Chart */}
+                <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+                  <h3 className="text-xl font-bold text-[#002F6C] mb-6">Trend TTR (Tempo di Risposta)</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={mockChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                      <XAxis dataKey="name" tick={{ fill: '#333333' }} />
+                      <YAxis tick={{ fill: '#333333' }} />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: 'white', 
+                          border: '1px solid #E5E7EB',
+                          borderRadius: '12px',
+                          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                        }}
+                      />
+                      <Legend />
+                      <Line type="monotone" dataKey="ttr" stroke="#2C8EFF" strokeWidth={3} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Workload Distribution */}
+                <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+                  <h3 className="text-xl font-bold text-[#002F6C] mb-6">Distribuzione Workload</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={mockChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                      <XAxis dataKey="name" tick={{ fill: '#333333' }} />
+                      <YAxis tick={{ fill: '#333333' }} />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: 'white', 
+                          border: '1px solid #E5E7EB',
+                          borderRadius: '12px',
+                          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                        }}
+                      />
+                      <Legend />
+                      <Bar dataKey="workload" fill="#00C48C" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-            </div>
-          </div>
-
-          {/* Recent Assignments Timeline */}
-          <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6 mb-8">
-            <h3 className="text-xl font-bold text-[#002F6C] mb-6">Assegnazioni Recenti</h3>
-            <div className="space-y-4">
-              {mockAssignments.map((assignment, index) => {
-                const IconComponent = assignment.icon
-                return (
-                  <div key={index} className="flex items-start space-x-4">
-                    <div className="flex-shrink-0 w-10 h-10 bg-[#2C8EFF] rounded-full flex items-center justify-center">
-                      <IconComponent className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#333333]">{assignment.description}</p>
-                      <p className="text-sm text-[#666666]">{assignment.time}</p>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Advanced Charts */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* TTR Trend Chart */}
-            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
-              <h3 className="text-xl font-bold text-[#002F6C] mb-6">Trend TTR (Tempo di Risposta)</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={mockChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                  <XAxis dataKey="name" tick={{ fill: '#333333' }} />
-                  <YAxis tick={{ fill: '#333333' }} />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'white', 
-                      border: '1px solid #E5E7EB',
-                      borderRadius: '12px',
-                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                    }}
-                  />
-                  <Legend />
-                  <Line type="monotone" dataKey="ttr" stroke="#2C8EFF" strokeWidth={3} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Workload Distribution */}
-            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
-              <h3 className="text-xl font-bold text-[#002F6C] mb-6">Distribuzione Workload</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={mockChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                  <XAxis dataKey="name" tick={{ fill: '#333333' }} />
-                  <YAxis tick={{ fill: '#333333' }} />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'white', 
-                      border: '1px solid #E5E7EB',
-                      borderRadius: '12px',
-                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                    }}
-                  />
-                  <Legend />
-                  <Bar dataKey="workload" fill="#00C48C" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
             </>
+          )}
+
+          {/* Projects Section (Placeholder) */}
+          {activeSection === 'projects' && (
+            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-8">
+              <h2 className="text-2xl font-bold text-[#002F6C] mb-6">Sezione Progetti</h2>
+              <p className="text-[#333333]">Qui verrà visualizzato il contenuto relativo ai progetti.</p>
+            </div>
+          )}
+
+          {/* Operators Section (Placeholder) */}
+          {activeSection === 'operators' && (
+            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-8">
+              <h2 className="text-2xl font-bold text-[#002F6C] mb-6">Sezione Operatori</h2>
+              <p className="text-[#333333]">Qui verrà visualizzato il contenuto relativo agli operatori.</p>
+            </div>
+          )}
+
+          {/* Reports Section (Placeholder) */}
+          {activeSection === 'reports' && (
+            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-8">
+              <h2 className="text-2xl font-bold text-[#002F6C] mb-6">Sezione Report</h2>
+              <p className="text-[#333333]">Qui verrà visualizzato il contenuto relativo ai report.</p>
+            </div>
           )}
 
           {/* Settings Section */}
