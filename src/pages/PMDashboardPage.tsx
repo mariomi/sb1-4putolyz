@@ -7,17 +7,19 @@ import {
 } from 'recharts'
 import { 
   RefreshCw, Download, Calendar, TrendingUp, Users, FolderOpen, 
-  CheckCircle, Clock, AlertTriangle, BarChart3, FileText, UserCheck
+  CheckCircle, Clock, AlertTriangle, BarChart3, FileText, UserCheck,
+  Home, FolderOpen as ProjectsIcon, Users as OperatorsIcon, BarChart3 as ReportsIcon
 } from 'lucide-react'
+import Logo from '/Logo.svg'
 
 // Mock data for demonstration
 const mockKPIData = [
-  { title: 'Progetti Attivi', value: 24, change: '+12%', icon: FolderOpen, color: 'bg-blue-500', changeColor: 'text-green-600' },
-  { title: 'Task Completati', value: 156, change: '+8%', icon: CheckCircle, color: 'bg-green-500', changeColor: 'text-green-600' },
-  { title: 'Task Aperti', value: 43, change: '-5%', icon: FileText, color: 'bg-yellow-500', changeColor: 'text-red-600' },
-  { title: 'TTR Medio (ore)', value: 2.4, change: '-15%', icon: Clock, color: 'bg-purple-500', changeColor: 'text-green-600' },
-  { title: 'Ticket Chiusi 24h', value: '89%', change: '+3%', icon: CheckCircle, color: 'bg-emerald-500', changeColor: 'text-green-600' },
-  { title: 'Task Falliti', value: 7, change: '-2%', icon: AlertTriangle, color: 'bg-red-500', changeColor: 'text-green-600' }
+  { title: 'Progetti Attivi', value: 24, change: '+12%', icon: FolderOpen, color: 'bg-[#002F6C]', changeColor: 'text-[#00C48C]' },
+  { title: 'Task Completati', value: 156, change: '+8%', icon: CheckCircle, color: 'bg-[#00C48C]', changeColor: 'text-[#00C48C]' },
+  { title: 'Task Aperti', value: 43, change: '-5%', icon: FileText, color: 'bg-[#FFA726]', changeColor: 'text-[#F64C38]' },
+  { title: 'TTR Medio (ore)', value: 2.4, change: '-15%', icon: Clock, color: 'bg-[#2C8EFF]', changeColor: 'text-[#00C48C]' },
+  { title: 'Ticket Chiusi 24h', value: '89%', change: '+3%', icon: CheckCircle, color: 'bg-[#00C48C]', changeColor: 'text-[#00C48C]' },
+  { title: 'Task Falliti', value: 7, change: '-2%', icon: AlertTriangle, color: 'bg-[#F64C38]', changeColor: 'text-[#00C48C]' }
 ]
 
 const mockOperators = [
@@ -52,13 +54,14 @@ const mockChartData = [
   { name: 'Dom', ttr: 1.2, workload: 45 }
 ]
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8']
+const COLORS = ['#2C8EFF', '#00C48C', '#FFA726', '#F64C38', '#002F6C']
 
 export function PMDashboardPage() {
   const navigate = useNavigate()
   const { signOut } = useAuth()
   const [timeRange, setTimeRange] = useState('week')
   const [sortBy, setSortBy] = useState('workload')
+  const [activeSection, setActiveSection] = useState('dashboard')
 
   const handleLogout = async () => {
     await signOut()
@@ -81,18 +84,18 @@ export function PMDashboardPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'In corso': return 'bg-blue-200 text-blue-800'
-      case 'Completato': return 'bg-green-200 text-green-800'
-      case 'Bloccato': return 'bg-red-200 text-red-800'
-      case 'In attesa': return 'bg-yellow-200 text-yellow-800'
+      case 'In corso': return 'bg-[#2C8EFF] text-white'
+      case 'Completato': return 'bg-[#00C48C] text-white'
+      case 'Bloccato': return 'bg-[#F64C38] text-white'
+      case 'In attesa': return 'bg-[#FFA726] text-white'
       default: return 'bg-gray-200 text-gray-800'
     }
   }
 
   const getWorkloadColor = (workload: number) => {
-    if (workload > 80) return 'bg-red-500 text-white'
-    if (workload > 60) return 'bg-yellow-500 text-white'
-    return 'bg-green-500 text-white'
+    if (workload > 80) return 'bg-[#F64C38] text-white'
+    if (workload > 60) return 'bg-[#2C8EFF] text-white'
+    return 'bg-[#00C48C] text-white'
   }
 
   const sortedOperators = [...mockOperators].sort((a, b) => {
@@ -105,223 +108,266 @@ export function PMDashboardPage() {
   })
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-6">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-                📊 Project Manager — Dashboard
-              </h1>
-              <p className="mt-2 text-lg text-gray-600">
-                Overview progetti, workload operatori, assegnazioni e KPI base
-              </p>
-            </div>
+    <div className="flex h-screen bg-[#F5F7FA]">
+      {/* Sidebar */}
+      <div className="w-64 bg-[#002F6C] text-white flex flex-col">
+        <div className="p-6 flex justify-center border-b border-[#1a4a8a]">
+          <img src={Logo} alt="SENDURA Logo" className="h-16 w-auto" />
+        </div>
+        
+        <nav className="mt-8 flex-1 px-4">
+          <div className="space-y-2">
+            <button
+              onClick={() => setActiveSection('dashboard')}
+              className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${
+                activeSection === 'dashboard' 
+                  ? 'bg-[#2C8EFF] text-white shadow-lg' 
+                  : 'text-white hover:bg-[#1a4a8a] hover:text-[#2C8EFF]'
+              }`}
+            >
+              <Home className="w-5 h-5 mr-3" />
+              Dashboard
+            </button>
             
-            <div className="mt-4 sm:mt-0 flex flex-col sm:flex-row gap-3">
-              {/* Navigation Links */}
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => navigateToPage('/pm-projects')}
-                  className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors duration-200"
-                >
-                  📁 Progetti
-                </button>
-                <button
-                  onClick={() => navigateToPage('/pm-operators')}
-                  className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors duration-200"
-                >
-                  👥 Operatori
-                </button>
-                <button
-                  onClick={() => navigateToPage('/pm-reports')}
-                  className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors duration-200"
-                >
-                  📊 Report
-                </button>
+            <button
+              onClick={() => navigateToPage('/pm-projects')}
+              className="w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 text-white hover:bg-[#1a4a8a] hover:text-[#2C8EFF]"
+            >
+              <ProjectsIcon className="w-5 h-5 mr-3" />
+              Progetti
+            </button>
+            
+            <button
+              onClick={() => navigateToPage('/pm-operators')}
+              className="w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 text-white hover:bg-[#1a4a8a] hover:text-[#2C8EFF]"
+            >
+              <OperatorsIcon className="w-5 h-5 mr-3" />
+              Operatori
+            </button>
+            
+            <button
+              onClick={() => navigateToPage('/pm-reports')}
+              className="w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 text-white hover:bg-[#1a4a8a] hover:text-[#2C8EFF]"
+            >
+              <ReportsIcon className="w-5 h-5 mr-3" />
+              Report
+            </button>
+          </div>
+        </nav>
+      </div>
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <header className="bg-white shadow-md border-b border-gray-100">
+          <div className="px-8 py-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-[#002F6C]">
+                  Project Manager Dashboard
+                </h1>
+                <p className="mt-2 text-lg text-[#333333]">
+                  Overview progetti, workload operatori, assegnazioni e KPI base
+                </p>
               </div>
-
-              {/* Time Range Selector */}
-              <select
-                value={timeRange}
-                onChange={(e) => setTimeRange(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="today">Oggi</option>
-                <option value="week">Ultima settimana</option>
-                <option value="month">Ultimo mese</option>
-                <option value="custom">Range personalizzato</option>
-              </select>
-
-              {/* Action Buttons */}
-              <button
-                onClick={handleRefresh}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Refresh Dati
-              </button>
               
-              <div className="relative">
+              <div className="flex items-center space-x-4">
+                <span className="text-[#333333] font-medium">Welcome, Project Manager</span>
+                
+                {/* Time Range Selector */}
+                <select
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(e.target.value)}
+                  className="px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2C8EFF] focus:border-[#2C8EFF] text-[#333333]"
+                >
+                  <option value="today">Oggi</option>
+                  <option value="week">Ultima settimana</option>
+                  <option value="month">Ultimo mese</option>
+                  <option value="custom">Range personalizzato</option>
+                </select>
+
+                {/* Action Buttons */}
+                <button
+                  onClick={handleRefresh}
+                  className="inline-flex items-center px-4 py-2 bg-[#2C8EFF] hover:bg-[#1a6fd9] text-white font-medium rounded-xl transition-colors duration-200 shadow-md"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Refresh Dati
+                </button>
+                
                 <button
                   onClick={() => handleExport('csv')}
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-[#333333] bg-white hover:bg-gray-50 font-medium rounded-xl transition-colors duration-200 shadow-md"
                 >
                   <Download className="w-4 h-4 mr-2" />
                   Export
                 </button>
+
+                <button
+                  onClick={handleLogout}
+                  className="inline-flex items-center px-4 py-2 bg-[#F64C38] hover:bg-[#d93d2a] text-white font-medium rounded-xl transition-colors duration-200 shadow-md"
+                >
+                  Esci
+                </button>
               </div>
-
-              <button
-                onClick={handleLogout}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-              >
-                Esci
-              </button>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* KPI Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
-          {mockKPIData.map((kpi, index) => {
-            const IconComponent = kpi.icon
-            return (
-              <div key={index} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">{kpi.title}</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-2">{kpi.value}</p>
-                    <p className={`text-sm mt-1 ${kpi.changeColor}`}>{kpi.change}</p>
-                  </div>
-                  <div className={`p-3 rounded-full ${kpi.color}`}>
-                    <IconComponent className="w-6 h-6 text-white" />
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          {/* Workload Operators */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-gray-900">Workload Operatori</h3>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="workload">Per Carico</option>
-                <option value="name">Per Nome</option>
-                <option value="assigned">Per Task</option>
-              </select>
-            </div>
-            
-            <div className="space-y-4">
-              {sortedOperators.map((operator, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-900">{operator.name}</p>
-                    <p className="text-sm text-gray-600">
-                      {operator.completed}/{operator.assigned} task completati
-                    </p>
-                  </div>
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${getWorkloadColor(operator.workload)}`}>
-                    {operator.workload}%
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Active Projects */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-xl font-semibold text-gray-900 mb-6">Progetti Attivi</h3>
-            <div className="space-y-4">
-              {mockProjects.map((project, index) => (
-                <div key={index} className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium text-gray-900">{project.name}</h4>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
-                      {project.status}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600 mb-2">
-                    Manager: {project.manager} • Operatori: {project.operators}
-                  </p>
-                  <div className="flex items-center">
-                    <div className="flex-1 bg-gray-200 rounded-full h-2 mr-3">
-                      <div 
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
-                        style={{ width: `${project.progress}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-sm font-medium text-gray-900">{project.progress}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Recent Assignments Timeline */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-          <h3 className="text-xl font-semibold text-gray-900 mb-6">Assegnazioni Recenti</h3>
-          <div className="space-y-4">
-            {mockAssignments.map((assignment, index) => {
-              const IconComponent = assignment.icon
+        {/* Content area */}
+        <main className="flex-1 overflow-x-hidden overflow-y-auto p-8">
+          {/* KPI Section */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
+            {mockKPIData.map((kpi, index) => {
+              const IconComponent = kpi.icon
               return (
-                <div key={index} className="flex items-start space-x-4">
-                  <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                    <IconComponent className="w-4 h-4 text-blue-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900">{assignment.description}</p>
-                    <p className="text-sm text-gray-500">{assignment.time}</p>
+                <div key={index} className="bg-white rounded-2xl shadow-md border border-gray-100 p-6 hover:shadow-lg transition-shadow duration-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-[#333333]">{kpi.title}</p>
+                      <p className="text-3xl font-bold text-[#002F6C] mt-2">{kpi.value}</p>
+                      <p className={`text-sm mt-1 font-semibold ${kpi.changeColor}`}>{kpi.change}</p>
+                    </div>
+                    <div className={`p-4 rounded-2xl ${kpi.color}`}>
+                      <IconComponent className="w-6 h-6 text-white" />
+                    </div>
                   </div>
                 </div>
               )
             })}
           </div>
-        </div>
 
-        {/* Advanced Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* TTR Trend Chart */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-xl font-semibold text-gray-900 mb-6">Trend TTR (Tempo di Risposta)</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={mockChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="ttr" stroke="#8884d8" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            {/* Project Overview Section */}
+            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+              <h3 className="text-xl font-bold text-[#002F6C] mb-6">Project Overview</h3>
+              <div className="space-y-4">
+                {mockProjects.map((project, index) => (
+                  <div key={index} className="p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-colors duration-200">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-[#002F6C]">{project.name}</h4>
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
+                        {project.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-[#333333] mb-3">
+                      Manager: {project.manager} • Operatori: {project.operators}
+                    </p>
+                    <div className="flex items-center">
+                      <div className="flex-1 bg-gray-200 rounded-full h-2 mr-3">
+                        <div 
+                          className="bg-[#2C8EFF] h-2 rounded-full transition-all duration-300" 
+                          style={{ width: `${project.progress}%` }}
+                        ></div>
+                      </div>
+                      <span className="text-sm font-medium text-[#333333]">{project.progress}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Operator Workload Section */}
+            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-[#002F6C]">Operator Workload</h3>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="px-3 py-1 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2C8EFF] focus:border-[#2C8EFF] text-[#333333]"
+                >
+                  <option value="workload">Per Carico</option>
+                  <option value="name">Per Nome</option>
+                  <option value="assigned">Per Task</option>
+                </select>
+              </div>
+              
+              <div className="space-y-4">
+                {sortedOperators.map((operator, index) => (
+                  <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors duration-200">
+                    <div className="flex-1">
+                      <p className="font-medium text-[#333333]">{operator.name}</p>
+                      <p className="text-sm text-[#666666]">
+                        {operator.completed}/{operator.assigned} task completati
+                      </p>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getWorkloadColor(operator.workload)}`}>
+                      {operator.workload}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {/* Workload Distribution */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-xl font-semibold text-gray-900 mb-6">Distribuzione Workload</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={mockChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="workload" fill="#82ca9d" />
-              </BarChart>
-            </ResponsiveContainer>
+          {/* Recent Assignments Timeline */}
+          <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6 mb-8">
+            <h3 className="text-xl font-bold text-[#002F6C] mb-6">Assegnazioni Recenti</h3>
+            <div className="space-y-4">
+              {mockAssignments.map((assignment, index) => {
+                const IconComponent = assignment.icon
+                return (
+                  <div key={index} className="flex items-start space-x-4">
+                    <div className="flex-shrink-0 w-10 h-10 bg-[#2C8EFF] rounded-full flex items-center justify-center">
+                      <IconComponent className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#333333]">{assignment.description}</p>
+                      <p className="text-sm text-[#666666]">{assignment.time}</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        </div>
+
+          {/* Advanced Charts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* TTR Trend Chart */}
+            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+              <h3 className="text-xl font-bold text-[#002F6C] mb-6">Trend TTR (Tempo di Risposta)</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={mockChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                  <XAxis dataKey="name" tick={{ fill: '#333333' }} />
+                  <YAxis tick={{ fill: '#333333' }} />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'white', 
+                      border: '1px solid #E5E7EB',
+                      borderRadius: '12px',
+                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                    }}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="ttr" stroke="#2C8EFF" strokeWidth={3} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Workload Distribution */}
+            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+              <h3 className="text-xl font-bold text-[#002F6C] mb-6">Distribuzione Workload</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={mockChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                  <XAxis dataKey="name" tick={{ fill: '#333333' }} />
+                  <YAxis tick={{ fill: '#333333' }} />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'white', 
+                      border: '1px solid #E5E7EB',
+                      borderRadius: '12px',
+                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="workload" fill="#00C48C" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </main>
       </div>
     </div>
   )
