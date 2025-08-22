@@ -13,6 +13,8 @@ import { ClientAppointmentsPage } from './pages/ClientAppointmentsPage'
 import { ReplyOperatorLogPage } from './pages/ReplyOperatorLogPage'
 import { AdminPage } from './pages/AdminPage'
 import { PMDashboardPage } from './pages/PMDashboardPage'
+import { ProjectsPage } from './pages/ProjectsPage'
+import { OperatorsPage } from './pages/OperatorsPage'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -58,6 +60,30 @@ function App() {
             element={
               <ProtectedRoute>
                 <PMDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/pm-projects"
+            element={
+              <ProtectedRoute>
+                <ProjectsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/pm-operators"
+            element={
+              <ProtectedRoute>
+                <OperatorsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/pm-reports"
+            element={
+              <ProtectedRoute>
+                <ReportsPage />
               </ProtectedRoute>
             }
           />
