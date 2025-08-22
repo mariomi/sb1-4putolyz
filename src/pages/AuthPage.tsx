@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { toast } from 'react-hot-toast'
-import { supabase, testSupabaseConnection } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 import Logo from '/Logo.svg'
 
 export function AuthPage() {
   const { user, signInWithOperator } = useAuth()
   const [loading, setLoading] = useState(false)
-  const [connectionTested, setConnectionTested] = useState(false)
   const [formData, setFormData] = useState({
     ruolo: '',
     idOperatore: '',
@@ -16,19 +15,10 @@ export function AuthPage() {
   })
   const [availableRoles, setAvailableRoles] = useState<string[]>([])
 
-  useEffect(() => {
-    // Test Supabase connection on component mount
-    const testConnection = async () => {
-      console.log('Testing Supabase connection...')
-      const isConnected = await testSupabaseConnection()
-      setConnectionTested(true)
-      if (!isConnected) {
-        console.error('Supabase connection failed')
-        toast.error('Errore di connessione al database')
-      }
-    }
-    testConnection()
-  }, [])
+  // Funzione per capitalizzare la prima lettera
+  const capitalizeFirstLetter = (string: string) => {
+    return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase()
+  }
 
   useEffect(() => {
     const fetchRoles = async () => {
@@ -98,71 +88,98 @@ export function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen bg-blue-50 flex items-center justify-center p-8">
-      <div className="bg-white rounded-xl shadow-md w-full max-w-5xl p-10 md:p-14">
-        <div className="flex items-start gap-16">
-          {/* Logo grande a sinistra */}
-          <div className="flex-shrink-0 pt-2">
-            <img src={Logo} alt="Logo" className="h-32 md:h-40 w-auto" />
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl overflow-hidden">
+        <div className="flex min-h-[600px]">
+          {/* Sezione Logo - 40% dello spazio */}
+          <div className="w-2/5 bg-gradient-to-br from-[#0b2e63] to-[#1e40af] flex items-center justify-center p-12 relative overflow-hidden">
+            {/* Elementi decorativi di sfondo */}
+            <div className="absolute top-0 left-0 w-full h-full opacity-10">
+              <div className="absolute top-10 left-10 w-32 h-32 bg-white rounded-full"></div>
+              <div className="absolute bottom-20 right-16 w-24 h-24 bg-white rounded-full"></div>
+              <div className="absolute top-1/2 left-1/4 w-16 h-16 bg-white rounded-full"></div>
+            </div>
+            
+            {/* Logo centrato */}
+            <div className="relative z-10 text-center">
+              <img src={Logo} alt="Logo" className="h-48 md:h-56 lg:h-64 w-auto mx-auto mb-8 drop-shadow-lg filter brightness-0" />
+              <h1 className="text-white text-3xl md:text-4xl font-bold mb-4">Sendura</h1>
+              <p className="text-blue-100 text-lg">Gestione Campagne Email Professionale</p>
+            </div>
           </div>
 
-          {/* Form grande a destra */}
-          <div className="flex-1">
-            {/* Connection status indicator */}
-            {connectionTested && (
-              <div className="mb-4 p-3 rounded-lg bg-gray-100 text-sm">
-                <span className="font-medium">Stato connessione:</span>
-                <span className="ml-2 text-green-600">✓ Connesso</span>
+          {/* Sezione Form - 60% dello spazio */}
+          <div className="w-3/5 flex items-center justify-center p-12">
+            <div className="w-full max-w-lg">
+              <div className="text-center mb-8">
+                <h2 className="text-3xl font-bold text-gray-800 mb-2">Benvenuto</h2>
+                <p className="text-gray-600">Accedi al tuo pannello di controllo</p>
               </div>
-            )}
-            
-            <form onSubmit={handleSubmit} className="space-y-5 max-w-xl">
-              <select
-                value={formData.ruolo}
-                onChange={(e) => setFormData({ ...formData, ruolo: e.target.value })}
-                className="w-full px-6 py-4 text-lg border border-gray-300 rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-[#0b2e63] focus:border-transparent appearance-none"
-              >
-                <option value="" disabled>
-                  {availableRoles.length ? 'Seleziona ruolo' : 'Inserisci ID Operatore per caricare i ruoli'}
-                </option>
-                {availableRoles.map((r) => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </select>
 
-              <input
-                type="text"
-                placeholder="ID Operatore"
-                className="w-full px-6 py-4 text-lg border border-gray-300 rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-[#0b2e63] focus:border-transparent"
-                value={formData.idOperatore}
-                onChange={(e) => setFormData({ ...formData, idOperatore: e.target.value })}
-              />
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Ruolo</label>
+                  <select
+                    value={formData.ruolo}
+                    onChange={(e) => setFormData({ ...formData, ruolo: e.target.value })}
+                    className="w-full px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0b2e63] focus:border-transparent appearance-none transition-all duration-200"
+                  >
+                    <option value="" disabled>
+                      {availableRoles.length ? 'Seleziona il tuo ruolo' : 'Inserisci ID Operatore per caricare i ruoli'}
+                    </option>
+                    {availableRoles.map((r) => (
+                      <option key={r} value={r}>{capitalizeFirstLetter(r)}</option>
+                    ))}
+                  </select>
+                </div>
 
-              <input
-                type="password"
-                placeholder="Chiave d'accesso"
-                className="w-full px-6 py-4 text-lg border border-gray-300 rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-[#0b2e63] focus:border-transparent"
-                value={formData.chiaveAccesso}
-                onChange={(e) => setFormData({ ...formData, chiaveAccesso: e.target.value })}
-              />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">ID Operatore</label>
+                  <input
+                    type="text"
+                    placeholder="Inserisci il tuo ID operatore"
+                    className="w-full px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0b2e63] focus:border-transparent transition-all duration-200"
+                    value={formData.idOperatore}
+                    onChange={(e) => setFormData({ ...formData, idOperatore: e.target.value })}
+                  />
+                </div>
 
-              <button
-                type="submit"
-                disabled={loading || !connectionTested}
-                className="w-full bg-[#0b2e63] text-white py-4 px-6 rounded-full text-lg font-medium hover:bg-[#08234a] focus:outline-none focus:ring-2 focus:ring-[#0b2e63] focus:ring-offset-2 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Caricamento...' : 'Accedi'}
-              </button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Chiave d'Accesso</label>
+                  <input
+                    type="password"
+                    placeholder="Inserisci la tua chiave d'accesso"
+                    className="w-full px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0b2e63] focus:border-transparent transition-all duration-200"
+                    value={formData.chiaveAccesso}
+                    onChange={(e) => setFormData({ ...formData, chiaveAccesso: e.target.value })}
+                  />
+                </div>
 
-              <div className="text-right">
                 <button
-                  type="button"
-                  className="text-[#0b2e63] hover:opacity-80 text-sm underline transition-colors duration-200"
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-gradient-to-r from-[#0b2e63] to-[#1e40af] text-white py-4 px-6 rounded-lg text-lg font-semibold hover:from-[#08234a] hover:to-[#1e3a8a] focus:outline-none focus:ring-2 focus:ring-[#0b2e63] focus:ring-offset-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
                 >
-                  Recupera password
+                  {loading ? (
+                    <div className="flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                      Accesso in corso...
+                    </div>
+                  ) : (
+                    'Accedi al Sistema'
+                  )}
                 </button>
-              </div>
-            </form>
+
+                <div className="text-center pt-4">
+                  <button
+                    type="button"
+                    className="text-[#0b2e63] hover:text-[#1e40af] text-sm font-medium underline transition-colors duration-200"
+                  >
+                    Hai dimenticato la password?
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       </div>
