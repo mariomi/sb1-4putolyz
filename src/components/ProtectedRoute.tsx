@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { LoadingSpinner } from './LoadingSpinner'
+import { RoleBasedRedirect } from './RoleBasedRedirect'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
@@ -22,5 +23,9 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/auth" replace state={{ from: location }} />
   }
 
-  return <>{children}</>
+  return (
+    <RoleBasedRedirect>
+      {children}
+    </RoleBasedRedirect>
+  )
 }

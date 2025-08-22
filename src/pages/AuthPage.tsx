@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { toast } from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
@@ -14,10 +14,21 @@ export function AuthPage() {
     chiaveAccesso: '',
   })
   const [availableRoles, setAvailableRoles] = useState<string[]>([])
+  const navigate = useNavigate()
 
   // Funzione per capitalizzare la prima lettera
   const capitalizeFirstLetter = (string: string) => {
     return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase()
+  }
+
+  // Funzione per ottenere il percorso di reindirizzamento basato sul ruolo
+  const getRedirectPath = (role: string) => {
+    const roleRedirects: { [key: string]: string } = {
+      'reply_operator': '/reply-operator',
+      'admin': '/admin',
+      'project_manager': '/pm-dashboard'
+    }
+    return roleRedirects[role.toLowerCase()] || '/'
   }
 
   useEffect(() => {
@@ -52,6 +63,13 @@ export function AuthPage() {
   }, [formData.idOperatore])
 
   if (user) {
+    // Se l'utente è già loggato, reindirizza alla pagina corretta
+    const operatorSession = localStorage.getItem('operator_session')
+    if (operatorSession) {
+      const sessionData = JSON.parse(operatorSession)
+      const redirectPath = getRedirectPath(sessionData.role)
+      return <Navigate to={redirectPath} replace />
+    }
     return <Navigate to="/" replace />
   }
 
@@ -66,7 +84,7 @@ export function AuthPage() {
         chiaveAccesso: formData.chiaveAccesso ? '***' : 'empty'
       })
       
-      const { error } = await signInWithOperator(
+      const { error, profile } = await signInWithOperator(
         (formData.ruolo || null) as any,
         formData.idOperatore,
         formData.chiaveAccesso,
@@ -77,8 +95,17 @@ export function AuthPage() {
         throw error
       }
       
-      console.log('Login successful')
+      console.log('Login successful, profile:', profile)
       toast.success('Accesso effettuato con successo!')
+      
+      // Reindirizza alla pagina corretta basata sul ruolo
+      if (profile?.role) {
+        const redirectPath = getRedirectPath(profile.role)
+        console.log(`Redirecting to ${redirectPath} for role ${profile.role}`)
+        navigate(redirectPath)
+      } else {
+        navigate('/')
+      }
     } catch (error: any) {
       console.error('Login exception:', error)
       toast.error(error.message || 'Si è verificato un errore durante il login')

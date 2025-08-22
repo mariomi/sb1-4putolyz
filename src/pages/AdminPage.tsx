@@ -2,7 +2,7 @@ import Logo from '/Logo.svg'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 
-export function PMDashboardPage() {
+export function AdminPage() {
   const navigate = useNavigate()
   const { signOut } = useAuth()
 
@@ -22,7 +22,7 @@ export function PMDashboardPage() {
         
         {/* Titolo centrato */}
         <div className="flex-1 flex justify-center">
-          <h1 className="text-4xl font-bold text-gray-900">P.M. Dashboard</h1>
+          <h1 className="text-4xl font-bold text-gray-900">Admin Page</h1>
         </div>
         
         {/* Pulsante Esci a destra */}

@@ -10,6 +10,9 @@ import { SendersPage } from './pages/SendersPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { LeadsViewPage } from './pages/LeadsViewPage'
 import { ClientAppointmentsPage } from './pages/ClientAppointmentsPage'
+import { ReplyOperatorLogPage } from './pages/ReplyOperatorLogPage'
+import { AdminPage } from './pages/AdminPage'
+import { PMDashboardPage } from './pages/PMDashboardPage'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -32,6 +35,33 @@ function App() {
         
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
+          
+          {/* Rotte specifiche per ruolo - senza Layout */}
+          <Route
+            path="/reply-operator"
+            element={
+              <ProtectedRoute>
+                <ReplyOperatorLogPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute>
+                <AdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/pm-dashboard"
+            element={
+              <ProtectedRoute>
+                <PMDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          
           <Route
             path="/*"
             element={
