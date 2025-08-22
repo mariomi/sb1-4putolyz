@@ -112,7 +112,7 @@ export function PMDashboardPage() {
       {/* Sidebar */}
       <div className="w-64 bg-[#002F6C] text-white flex flex-col">
         <div className="p-6 flex justify-center border-b border-[#1a4a8a]">
-          <img src={Logo} alt="SENDURA Logo" className="h-16 w-auto" />
+          <img src={Logo} alt="SENDURA Logo" className="h-16 w-auto filter brightness-75 contrast-125" />
         </div>
         
         <nav className="mt-8 flex-1 px-4">
@@ -151,6 +151,18 @@ export function PMDashboardPage() {
             >
               <ReportsIcon className="w-5 h-5 mr-3" />
               Report
+            </button>
+            
+            <button
+              onClick={() => setActiveSection('settings')}
+              className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${
+                activeSection === 'settings' 
+                  ? 'bg-[#2C8EFF] text-white shadow-lg' 
+                  : 'text-white hover:bg-[#1a4a8a] hover:text-[#2C8EFF]'
+              }`}
+            >
+              <BarChart3 className="w-5 h-5 mr-3" />
+              Impostazioni
             </button>
           </div>
         </nav>
@@ -216,8 +228,11 @@ export function PMDashboardPage() {
 
         {/* Content area */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-8">
-          {/* KPI Section */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
+          {/* Dashboard Section */}
+          {activeSection === 'dashboard' && (
+            <>
+              {/* KPI Section */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
             {mockKPIData.map((kpi, index) => {
               const IconComponent = kpi.icon
               return (
@@ -367,6 +382,70 @@ export function PMDashboardPage() {
               </ResponsiveContainer>
             </div>
           </div>
+            </>
+          )}
+
+          {/* Settings Section */}
+          {activeSection === 'settings' && (
+            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-8">
+              <h2 className="text-2xl font-bold text-[#002F6C] mb-6">Impostazioni</h2>
+              <div className="space-y-6">
+                <div className="border-b border-gray-200 pb-6">
+                  <h3 className="text-lg font-semibold text-[#333333] mb-4">Preferenze Dashboard</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-[#666666] mb-2">Range Temporale Predefinito</label>
+                      <select defaultValue="week" className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2C8EFF] focus:border-[#2C8EFF] text-[#333333]">
+                        <option value="today">Oggi</option>
+                        <option value="week">Ultima settimana</option>
+                        <option value="month">Ultimo mese</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-[#666666] mb-2">Ordinamento Operatori</label>
+                      <select defaultValue="workload" className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2C8EFF] focus:border-[#2C8EFF] text-[#333333]">
+                        <option value="workload">Per Carico</option>
+                        <option value="name">Per Nome</option>
+                        <option value="assigned">Per Task</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="border-b border-gray-200 pb-6">
+                  <h3 className="text-lg font-semibold text-[#333333] mb-4">Notifiche</h3>
+                  <div className="space-y-3">
+                    <label className="flex items-center">
+                      <input type="checkbox" className="mr-3 rounded border-gray-300 text-[#2C8EFF] focus:ring-[#2C8EFF]" defaultChecked />
+                      <span className="text-[#333333]">Notifiche email per task completati</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input type="checkbox" className="mr-3 rounded border-gray-300 text-[#2C8EFF] focus:ring-[#2C8EFF]" defaultChecked />
+                      <span className="text-[#333333]">Notifiche per progetti bloccati</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input type="checkbox" className="mr-3 rounded border-gray-300 text-[#2C8EFF] focus:ring-[#2C8EFF]" />
+                      <span className="text-[#333333]">Report settimanali automatici</span>
+                    </label>
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="text-lg font-semibold text-[#333333] mb-4">Esportazione Dati</h3>
+                  <div className="space-y-3">
+                    <button className="inline-flex items-center px-4 py-2 bg-[#2C8EFF] hover:bg-[#1a6fd9] text-white font-medium rounded-xl transition-colors duration-200 shadow-md">
+                      <Download className="w-4 h-4 mr-2" />
+                      Esporta Configurazione
+                    </button>
+                    <button className="inline-flex items-center px-4 py-2 border border-gray-300 text-[#333333] bg-white hover:bg-gray-50 font-medium rounded-xl transition-colors duration-200 shadow-md ml-3">
+                      <Download className="w-4 h-4 mr-2" />
+                      Importa Configurazione
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>
