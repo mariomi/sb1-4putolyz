@@ -4,22 +4,28 @@ export interface Database {
       profiles: {
         Row: {
           id: string
-          full_name: string
-          email: string
+          role: 'admin' | 'project_manager' | 'reply_operator' | 'data_operator' | 'sales' | 'client'
+          full_name: string | null
+          operator_id: string | null
+          access_key: string | null
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
-          full_name?: string
-          email: string
+          role?: 'admin' | 'project_manager' | 'reply_operator' | 'data_operator' | 'sales' | 'client'
+          full_name?: string | null
+          operator_id?: string | null
+          access_key?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
-          full_name?: string
-          email?: string
+          role?: 'admin' | 'project_manager' | 'reply_operator' | 'data_operator' | 'sales' | 'client'
+          full_name?: string | null
+          operator_id?: string | null
+          access_key?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -350,6 +356,24 @@ export interface Database {
           event_data?: any
           timestamp?: string
         }
+      }
+    }
+    Functions: {
+      get_email_and_role_by_operator: {
+        Args: { _operator_id: string }
+        Returns: { email: string; role: string }[]
+      }
+      get_roles_by_operator: {
+        Args: { _operator_id: string }
+        Returns: { role: string }[]
+      }
+      validate_access_key: {
+        Args: { _operator_id: string; _access_key: string }
+        Returns: boolean
+      }
+      authenticate_operator: {
+        Args: { _operator_id: string; _access_key: string }
+        Returns: { user_id: string; email: string; role: string; full_name: string; success: boolean }[]
       }
     }
   }

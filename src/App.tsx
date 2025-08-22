@@ -8,6 +8,8 @@ import { GroupsPage } from './pages/GroupsPage'
 import { DomainsPage } from './pages/DomainsPage'
 import { SendersPage } from './pages/SendersPage'
 import { ReportsPage } from './pages/ReportsPage'
+import { LeadsViewPage } from './pages/LeadsViewPage'
+import { ClientAppointmentsPage } from './pages/ClientAppointmentsPage'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -45,6 +47,8 @@ function App() {
             <Route path="domains" element={<DomainsPage />} />
             <Route path="senders" element={<SendersPage />} />
             <Route path="reports" element={<ReportsPage />} />
+            <Route path="leads" element={<LeadsViewPage />} />
+            <Route path="client" element={<ClientAppointmentsPage />} />
           </Route>
         </Routes>
       </div>

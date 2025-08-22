@@ -82,6 +82,8 @@ export function ContactsPage() {
   const initializeData = async () => {
     setLoading(true)
     try {
+      console.log('🔍 ContactsPage: Loading all data without profile filters...')
+
       // Carica tutto in sequenza per evitare sovrapposizioni
       await fetchGroups()
       await loadContacts(0, true) // Carica primi contatti e conta totale
@@ -94,74 +96,58 @@ export function ContactsPage() {
   }
 
   const fetchGroups = async () => {
-    if (!user?.id) {
-      console.warn('User not available for fetching groups')
-      return
-    }
+    console.log('📁 Fetching all groups...')
     
     try {
-      const { data: groups, error: groupsError } = await supabase
+      const { data: groups, error } = await supabase
         .from('groups')
         .select('*')
-        .eq('profile_id', user.id)
         .order('name')
 
-      if (groupsError) throw groupsError
+      if (error) {
+        console.error('Error fetching groups:', error)
+        return
+      }
+
       setGroups(groups || [])
-    } catch (error: any) {
-      console.error('Error fetching groups:', error)
+      console.log('✅ Groups loaded:', groups?.length || 0)
+    } catch (error) {
+      console.error('Exception fetching groups:', error)
     }
   }
 
   const loadContacts = async (page: number, isInitial: boolean = false) => {
     if (!isInitial && loadingMore) return
-    if (!user?.id) {
-      console.warn('User not available for loading contacts')
-      return
-    }
+    
+    console.log('📧 Loading contacts page:', page)
     
     setLoadingMore(true)
-    try {
-      const from = page * CONTACTS_PER_PAGE
-      const to = from + CONTACTS_PER_PAGE - 1
+    const from = page * CONTACTS_PER_PAGE
+    const to = from + CONTACTS_PER_PAGE - 1
 
-      // Se è caricamento iniziale, prendi anche il conteggio totale
-      const query = supabase
+    try {
+      const { data: contactsPage, error } = await supabase
         .from('contacts')
         .select('*', { count: isInitial ? 'exact' : undefined })
-        .eq('profile_id', user.id)
         .order('created_at', { ascending: false })
         .range(from, to)
 
-      const { data: contactsPage, error, count } = await query
-
       if (error) throw error
-
-      // Aggiorna il conteggio totale solo al primo caricamento
-      if (isInitial && count !== null) {
-        setTotalContactsCount(count)
-      }
 
       if (isInitial) {
         setContacts(contactsPage || [])
-        setCurrentPage(0)
-        // Mostra notifica solo se ci sono contatti e non stiamo resettando dalla ricerca
-        if ((contactsPage?.length || 0) > 0 && !searchTerm.trim()) {
-          toast.success(`Caricati ${count || contactsPage?.length || 0} contatti`)
-        }
+        setTotalContactsCount(contactsPage?.length || 0)
+        console.log('✅ Initial contacts loaded:', contactsPage?.length || 0)
       } else {
         setContacts(prev => [...prev, ...(contactsPage || [])])
-        setCurrentPage(page)
+        console.log('✅ More contacts loaded:', contactsPage?.length || 0)
       }
 
-      // Controlla se ci sono altri contatti da caricare
+      setCurrentPage(page)
       setHasMore((contactsPage?.length || 0) === CONTACTS_PER_PAGE)
-
     } catch (error: any) {
       console.error('Error loading contacts:', error)
-      if (isInitial) {
-        toast.error('Errore nel caricamento dei contatti')
-      }
+      toast.error('Errore nel caricamento dei contatti')
     } finally {
       setLoadingMore(false)
     }
@@ -169,20 +155,12 @@ export function ContactsPage() {
 
   const handleSearch = async () => {
     if (!searchTerm.trim()) return
-    if (!user?.id) {
-      console.warn('User not available for search')
-      return
-    }
-    
     setIsSearching(true)
-    setContacts([])
-    setHasMore(false)
     
     try {
       const { data: searchResults, error } = await supabase
         .from('contacts')
         .select('*')
-        .eq('profile_id', user.id)
         .or(`first_name.ilike.%${searchTerm}%,last_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`)
         .order('created_at', { ascending: false })
         .limit(500) // Limita risultati ricerca a 500
@@ -193,7 +171,7 @@ export function ContactsPage() {
       
       // Mostra notifica solo se non ci sono risultati
       if (!searchResults?.length) {
-        toast.info('Nessun contatto trovato')
+        toast('Nessun contatto trovato')
       }
     } catch (error: any) {
       console.error('Error searching contacts:', error)
@@ -205,10 +183,6 @@ export function ContactsPage() {
 
   const resetToNormalView = async () => {
     if (isSearching) return
-    if (!user?.id) {
-      console.warn('User not available for reset view')
-      return
-    }
     
     setIsSearching(false)
     setHasMore(true)
@@ -221,7 +195,6 @@ export function ContactsPage() {
       const { data: contactsPage, error } = await supabase
         .from('contacts')
         .select('*')
-        .eq('profile_id', user.id)
         .order('created_at', { ascending: false })
         .range(0, CONTACTS_PER_PAGE - 1)
 
@@ -244,7 +217,8 @@ export function ContactsPage() {
     
     // Carica più contatti quando si è vicini al fondo (200px dal fondo)
     if (scrollHeight - scrollTop <= clientHeight + 200) {
-      loadContacts(currentPage + 1)
+      
+      loadContacts(currentPage + 1, false)
     }
   }, [loadingMore, hasMore, currentPage, searchTerm])
 
@@ -259,16 +233,10 @@ export function ContactsPage() {
   const handleCreateContact = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!user?.id) {
-      toast.error('Errore: utente non autenticato')
-      return
-    }
-    
     try {
       const { data: contact, error } = await supabase
         .from('contacts')
         .insert({
-          profile_id: user.id,
           first_name: formData.first_name,
           last_name: formData.last_name,
           email: formData.email,
