@@ -10,6 +10,7 @@ import { SendersPage } from './pages/SendersPage'
 import { LeadsViewPage } from './pages/LeadsViewPage'
 import { ClientAppointmentsPage } from './pages/ClientAppointmentsPage'
 import { ReplyOperatorLogPage } from './pages/ReplyOperatorLogPage'
+import { VirtualDeskPage } from './pages/VirtualDeskPage'
 import { AdminPage } from './pages/AdminPage'
 import { PMDashboardPage } from './pages/PMDashboardPage'
 import { ProjectsPage } from './pages/ProjectsPagePM'
@@ -87,7 +88,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-          
+          <Route path="/virtual-desk" element={<VirtualDeskPage />} />
           <Route
             path="/*"
             element={
@@ -101,6 +102,7 @@ function App() {
             <Route path="contacts" element={<ContactsPage />} />
             <Route path="groups" element={<GroupsPage />} />
             <Route path="domains" element={<DomainsPage />} />
+            
             <Route path="senders" element={<SendersPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="leads" element={<LeadsViewPage />} />
