@@ -13,6 +13,7 @@ import { ClientAppointmentsPage } from './pages/ClientAppointmentsPage'
 import { ReplyOperatorLogPage } from './pages/ReplyOperatorLogPage'
 import { AdminPage } from './pages/AdminPage'
 import { PMDashboardPage } from './pages/PMDashboardPage'
+import BookingDiscoveryCallPage from './pages/BookingDiscoveryCallPage'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -58,6 +59,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <PMDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/booking-discovery-call"
+            element={
+              <ProtectedRoute>
+                <BookingDiscoveryCallPage />
               </ProtectedRoute>
             }
           />
