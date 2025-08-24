@@ -7,13 +7,16 @@ import { ContactsPage } from './pages/ContactsPage'
 import { GroupsPage } from './pages/GroupsPage'
 import { DomainsPage } from './pages/DomainsPage'
 import { SendersPage } from './pages/SendersPage'
-import { ReportsPage } from './pages/ReportsPage'
 import { LeadsViewPage } from './pages/LeadsViewPage'
 import { ClientAppointmentsPage } from './pages/ClientAppointmentsPage'
 import { ReplyOperatorLogPage } from './pages/ReplyOperatorLogPage'
+import { VirtualDeskPage } from './pages/VirtualDeskPage'
 import { AdminPage } from './pages/AdminPage'
 import { PMDashboardPage } from './pages/PMDashboardPage'
 import BookingDiscoveryCallPage from './pages/BookingDiscoveryCallPage'
+import { ProjectsPage } from './pages/ProjectsPagePM'
+import { OperatorsPage } from './pages/OperatorsPagePM'
+import { ReportsPage } from './pages/ReportsPagePM'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -70,7 +73,31 @@ function App() {
               </ProtectedRoute>
             }
           />
-          
+          <Route
+            path="/pm-projects"
+            element={
+              <ProtectedRoute>
+                <ProjectsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/pm-operators"
+            element={
+              <ProtectedRoute>
+                <OperatorsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/pm-reports"
+            element={
+              <ProtectedRoute>
+                <ReportsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/virtual-desk" element={<VirtualDeskPage />} />
           <Route
             path="/*"
             element={
@@ -84,6 +111,7 @@ function App() {
             <Route path="contacts" element={<ContactsPage />} />
             <Route path="groups" element={<GroupsPage />} />
             <Route path="domains" element={<DomainsPage />} />
+            
             <Route path="senders" element={<SendersPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="leads" element={<LeadsViewPage />} />
