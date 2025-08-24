@@ -357,6 +357,47 @@ export interface Database {
           timestamp?: string
         }
       }
+      user_access_logs: {
+        Row: {
+          id: string
+          user_id: string
+          profile_id?: string | null
+          login_time: string
+          logout_time?: string | null
+          online_duration_minutes?: number | null
+          ip_address?: any | null
+          user_agent?: string | null
+          session_id?: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          profile_id?: string | null
+          login_time?: string
+          logout_time?: string | null
+          online_duration_minutes?: number | null
+          ip_address?: any | null
+          user_agent?: string | null
+          session_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          profile_id?: string | null
+          login_time?: string
+          logout_time?: string | null
+          online_duration_minutes?: number | null
+          ip_address?: any | null
+          user_agent?: string | null
+          session_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     Functions: {
       get_email_and_role_by_operator: {

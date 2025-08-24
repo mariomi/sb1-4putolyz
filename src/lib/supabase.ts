@@ -21,7 +21,7 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
 // Service role client for admin operations (bypasses RLS)
 // Note: Service role key should be kept secure and not exposed in frontend
 // This is a temporary solution for testing
-export const supabaseAdmin = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+export const supabaseAdmin = createClient<Database>(supabaseUrl, 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhxc2p5dnFpa3J2aWJ5bHV5bnd2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MjkzMjM5OCwiZXhwIjoyMDY4NTA4Mzk4fQ.P52RyylRSFL3Ipe3YtgzX2YteOBDqkdooyVPy-Dk_Ic', {
   auth: {
     autoRefreshToken: true,
     persistSession: true,

@@ -13,6 +13,7 @@ import { ReplyOperatorLogPage } from './pages/ReplyOperatorLogPage'
 import { VirtualDeskPage } from './pages/VirtualDeskPage'
 import { AdminPage } from './pages/AdminPage'
 import { PMDashboardPage } from './pages/PMDashboardPage'
+import BookingDiscoveryCallPage from './pages/BookingDiscoveryCallPage'
 import { ProjectsPage } from './pages/ProjectsPagePM'
 import { OperatorsPage } from './pages/OperatorsPagePM'
 import { ReportsPage } from './pages/ReportsPagePM'
@@ -61,6 +62,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <PMDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/booking-discovery-call"
+            element={
+              <ProtectedRoute>
+                <BookingDiscoveryCallPage />
               </ProtectedRoute>
             }
           />

@@ -60,7 +60,8 @@ export function RoleBasedRedirect({ children }: RoleBasedRedirectProps) {
   const roleRedirects: { [key: string]: string } = {
     'reply_operator': '/reply-operator',
     'admin': '/admin',
-    'project_manager': '/pm-dashboard'
+    'project_manager': '/pm-dashboard',
+    'booking_discovery': '/booking-discovery-call'
   }
 
   const redirectPath = roleRedirects[userRole.toLowerCase()]

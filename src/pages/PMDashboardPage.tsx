@@ -58,15 +58,19 @@ const COLORS = ['#2C8EFF', '#00C48C', '#FFA726', '#F64C38', '#002F6C']
 
 export function PMDashboardPage() {
   const navigate = useNavigate()
-  // Simulating useAuth hook for standalone component
-  const signOut = async () => console.log('Signing out...')
+  const { signOut } = useAuth()
   const [timeRange, setTimeRange] = useState('week')
   const [sortBy, setSortBy] = useState('workload')
   const [activeSection, setActiveSection] = useState('dashboard')
 
   const handleLogout = async () => {
-    await signOut()
-    navigate('/auth')
+    try {
+      await signOut()
+    } catch (error) {
+      console.error(error)
+    } finally {
+      navigate('/auth')
+    }
   }
 
   const handleExport = (format: 'csv' | 'pdf') => {

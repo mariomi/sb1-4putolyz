@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import type { Profile } from '../types/database'
+import { logUserLogin, logUserLogout, closePreviousSessions } from '../lib/accessLogger'
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
@@ -29,6 +30,10 @@ export function useAuth() {
             return true
           }
           console.log('Operator session expired, removing')
+          // Log logout for expired operator session
+          if (user) {
+            logUserLogout(user.id, 'operator-session').catch(console.error)
+          }
           localStorage.removeItem('operator_session')
         }
       } catch (e) {
@@ -53,8 +58,22 @@ export function useAuth() {
       setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log('Auth state changed:', _event, session?.user?.id)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, session?.user?.id)
+      
+      // Handle different auth events
+      if (event === 'SIGNED_IN' && session?.user) {
+        console.log('🔄 User signed in, closing any previous sessions...')
+        // Close any previous sessions for this user
+        await closePreviousSessions(session.user.id)
+      }
+      
+      // Log logout when user is signed out
+      if (event === 'SIGNED_OUT' && user) {
+        console.log('🔄 User signed out, logging logout...')
+        await logUserLogout(user.id, 'default')
+      }
+      
       if (!localStorage.getItem('operator_session')) {
         setUser(session?.user ?? null)
       }
@@ -64,6 +83,33 @@ export function useAuth() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Handle page unload to log logout
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (user) {
+        console.log('🔄 Page unloading, logging logout...')
+        // Try to log logout directly
+        logUserLogout(user.id, 'default').catch(console.error)
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && user) {
+        console.log('🔄 Page hidden, logging logout...')
+        // Page is being hidden (tab switch, minimize, etc.)
+        logUserLogout(user.id, 'default').catch(console.error)
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [user])
+
   const signIn = async (email: string, password: string) => {
     console.log('Attempting sign in with email:', email)
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
@@ -71,6 +117,32 @@ export function useAuth() {
       console.error('Sign in error:', error)
     } else {
       console.log('Sign in successful:', data.user?.id)
+      // Log user access AFTER successful authentication
+      if (data.user && data.session) {
+        // Use a small delay to ensure the session is fully established
+        setTimeout(async () => {
+          try {
+            console.log('🔐 Logging user access after successful authentication...')
+            await logUserLogin({
+              user_id: data.user!.id,
+              profile_id: data.user!.id,
+              ip_address: undefined, // Will be updated later if available
+              user_agent: navigator.userAgent,
+              session_id: data.session!.access_token || 'default'
+            })
+            
+            // Try to get IP address asynchronously and update the log
+            getClientIP().then(ipAddress => {
+              if (ipAddress) {
+                console.log('🌐 Got IP address:', ipAddress)
+                // Note: We could update the log here if needed
+              }
+            }).catch(console.error)
+          } catch (logError) {
+            console.error('❌ Error logging user access:', logError)
+          }
+        }, 1000) // 1 second delay to ensure session is established
+      }
     }
     return { data, error }
   }
@@ -183,6 +255,30 @@ export function useAuth() {
       }
 
       console.log('✅ Operator login successful with local session')
+      
+      // Log user access for operator AFTER successful authentication
+      setTimeout(async () => {
+        try {
+          console.log('🔐 Logging operator access after successful authentication...')
+          await logUserLogin({
+            user_id: authData.user_id,
+            profile_id: authData.user_id,
+            ip_address: undefined, // Will be updated later if available
+            user_agent: navigator.userAgent,
+            session_id: 'operator-session'
+          })
+          
+          // Try to get IP address asynchronously
+          getClientIP().then(ipAddress => {
+            if (ipAddress) {
+              console.log('🌐 Got IP address for operator:', ipAddress)
+            }
+          }).catch(console.error)
+        } catch (logError) {
+          console.error('❌ Error logging operator access:', logError)
+        }
+      }, 1000) // 1 second delay to ensure session is established
+      
       return { error: null, profile }
     } catch (error) {
       console.error('Operator sign in exception:', error)
@@ -213,17 +309,70 @@ export function useAuth() {
   }
 
   const signOut = async () => {
-    console.log('Signing out...')
+    console.log('🔄 Signing out...')
+    
+    // Log user logout if user exists
+    if (user) {
+      console.log('🔄 Logging logout for user:', user.id)
+      await logUserLogout(user.id, 'default')
+    }
+    
+    // Clear operator session
     localStorage.removeItem('operator_session')
+    
+    // Clear user state
     setUser(null)
+    
+    // Sign out from Supabase
     const { error } = await supabase.auth.signOut()
     if (error) {
       console.error('Sign out error:', error)
     } else {
-      console.log('Sign out successful')
+      console.log('✅ Sign out successful')
     }
     return { error }
   }
 
   return { user, loading, signIn, signUp, signOut, signInWithOperator, fetchProfileByUserId, sendPasswordResetByOperatorId }
+}
+
+// Add helper function to get client IP
+const getClientIP = async (): Promise<string | undefined> => {
+  try {
+    // Try to get IP from a public IP service with timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 2000) // Reduced timeout to 2 seconds
+    
+    const response = await fetch('https://api.ipify.org?format=json', {
+      signal: controller.signal
+    })
+    
+    clearTimeout(timeoutId)
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const data = await response.json()
+    return data.ip
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn('IP fetch timed out, using fallback')
+    } else {
+      console.warn('Could not fetch client IP, using fallback:', error)
+    }
+    
+    // Fallback: try alternative IP service
+    try {
+      const response = await fetch('https://httpbin.org/ip', { signal: AbortSignal.timeout(1000) })
+      if (response.ok) {
+        const data = await response.json()
+        return data.origin
+      }
+    } catch (fallbackError) {
+      console.warn('Fallback IP service also failed:', fallbackError)
+    }
+    
+    return undefined
+  }
 }
