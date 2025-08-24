@@ -262,9 +262,7 @@ export function AccessLogsSection() {
     }
   }
 
-  // if (loading) {
-  //   return null // Non mostrare nulla durante il caricamento
-  // }
+  // Non mostrare schermata bianca durante il caricamento
 
   return (
     <div className="space-y-6">
