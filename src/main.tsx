@@ -2,13 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { createClient } from '@supabase/supabase-js';
-
-// Direct Supabase client with updated keys for testing
-const supabase = createClient(
-  'https://xqsjyvqikrvibyluynwv.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhxc2p5dnFpa3J2aWJ5bHV5bnd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI5MzIzOTgsImV4cCI6MjA2ODUwODM5OH0.rfBsX1s-3dJcr7hvd9x3hHW7WZPJpT-SMYrMfiG8fgc'
-);
+import { supabase } from './lib/supabase';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

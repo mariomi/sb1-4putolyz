@@ -1,0 +1,77 @@
+{
+  "tech_stack": [
+    "TypeScript",
+    "React",
+    "Vite",
+    "TailwindCSS",
+    "Supabase",
+    "PostgreSQL",
+    "Node.js"
+  ],
+  "features": [
+    {
+      "name": "Authentication hook",
+      "description": "Client-side auth utilities that manage Supabase sessions and a custom local 'operator' fallback session.",
+      "files": ["src/hooks/useAuth.ts"]
+    },
+    {
+      "name": "Auth page UI",
+      "description": "Login form for operators that fetches roles via RPC and supports operator-local session fallback.",
+      "files": ["src/pages/AuthPage.tsx"]
+    },
+    {
+      "name": "Supabase client",
+      "description": "Central Supabase client used across the app for auth and RPC calls.",
+      "files": ["src/lib/supabase.ts"]
+    },
+    {
+      "name": "Protected routing and layout",
+      "description": "Route protection wrapper and main app layout that gate routes based on auth state.",
+      "files": ["src/components/ProtectedRoute.tsx", "src/components/Layout.tsx"]
+    },
+    {
+      "name": "Common components",
+      "description": "Header, Sidebar, Loading spinner and other UI components used by pages.",
+      "files": ["src/components/Header.tsx", "src/components/Sidebar.tsx", "src/components/LoadingSpinner.tsx"]
+    },
+    {
+      "name": "Pages",
+      "description": "App pages (dashboard, campaigns, contacts, PM pages, admin, virtual desk, etc.).",
+      "files": [
+        "src/pages/Dashboard.tsx",
+        "src/pages/CampaignsPage.tsx",
+        "src/pages/ContactsPage.tsx",
+        "src/pages/GroupsPage.tsx",
+        "src/pages/DomainsPage.tsx",
+        "src/pages/SendersPage.tsx",
+        "src/pages/LeadsViewPage.tsx",
+        "src/pages/ClientAppointmentsPage.tsx",
+        "src/pages/ReplyOperatorLogPage.tsx",
+        "src/pages/VirtualDeskPage.tsx",
+        "src/pages/AdminPage.tsx",
+        "src/pages/PMDashboardPage.tsx",
+        "src/pages/ProjectsPagePM.tsx",
+        "src/pages/OperatorsPagePM.tsx",
+        "src/pages/ReportsPagePM.tsx",
+        "src/pages/AuthPage.tsx"
+      ]
+    },
+    {
+      "name": "Type definitions",
+      "description": "Database types and shared TypeScript interfaces.",
+      "files": ["src/types/database.ts"]
+    },
+    {
+      "name": "Supabase Edge Functions",
+      "description": "Server-side functions and migrations located in the `supabase` folder (RPC functions used by the client).",
+      "files": ["supabase/functions/", "supabase/migrations/"]
+    },
+    {
+      "name": "Build & Tooling",
+      "description": "Vite, ESLint, Tailwind configuration and npm scripts for dev/build/preview.",
+      "files": ["package.json", "vite.config.ts", "tailwind.config.js", "eslint.config.js", "postcss.config.js"]
+    }
+  ]
+}
+
+
