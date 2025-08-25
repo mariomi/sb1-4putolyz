@@ -1,4 +1,4 @@
-import { supabase, supabaseAdmin } from './supabase'
+import { supabaseAdmin } from './supabase'
 
 export interface AccessLogEntry {
   user_id: string
@@ -395,5 +395,35 @@ export const forceLogoutUserComplete = async (userId: string): Promise<boolean> 
   } catch (error) {
     console.error('❌ Exception during complete force logout:', error)
     return false
+  }
+}
+
+/**
+ * Log events related to lead explorer (view/search/export)
+ */
+export const logLeadExplorerEvent = async (userId: string | undefined, eventType: string, eventData: any): Promise<void> => {
+  try {
+    console.log(`📡 Logging lead explorer event: ${eventType}`)
+    const payload = {
+      event_type: eventType,
+      event_data: {
+        user_id: userId || null,
+        timestamp: new Date().toISOString(),
+        ...eventData,
+      },
+      timestamp: new Date().toISOString()
+    }
+
+    const { error } = await supabaseAdmin
+      .from('logs')
+      .insert(payload)
+
+    if (error) {
+      console.error('❌ Error logging lead explorer event:', error)
+    } else {
+      console.log('✅ Lead explorer event logged')
+    }
+  } catch (err) {
+    console.error('❌ Exception logging lead explorer event:', err)
   }
 }
