@@ -1,0 +1,18 @@
+{
+  "status": "commited",
+  "type": "frontend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:5173",
+  "loginUser": "OP-MAIO-ADMIN",
+  "loginPassword": "ciao",
+  "executionArgs": {
+    "projectName": "sb1-4putolyz",
+    "projectPath": "C:\\Users\\edosa\\Desktop\\sb1-4putolyz",
+    "testIds": [],
+    "additionalInstruction": "Rerun frontend Testsprite suite now that Vite dev server is running on localhost:5173. Focus on AuthPage and AdminPage. Save report to testsprite_tests/tmp/report_prompt.json",
+    "envs": {
+      "API_KEY": "sk-user-wlsFX-fefg0wx1q87IRl3ST9sdujxj18zfcGrh2EkO1rDf5dWBBCrBgd0xuzJm66Qu87xnZypGZ7Lq9ebwBfZ8Z_bFNryYnc7TJhQZLKaj7S8EZzhxXhE-WxbGentQ5Q4q8"
+    }
+  },
+  "proxy": "http://6d188533-2f8f-4251-9b88-cfaae7e3eac1:J1N0a9bp2IT0gIuyuqHFwcme1kaFfn6L@tun.testsprite.com:8080"
+}

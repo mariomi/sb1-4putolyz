@@ -1,0 +1,9 @@
+{
+  "project": "sb1-4putolyz",
+  "summary": "Standardized PRD for running frontend E2E tests focused on AuthPage.",
+  "scope": "Execute end-to-end tests for authentication UI and operator login flows.",
+  "targetPages": ["/auth"],
+  "notes": "Use dev server at http://localhost:5173. Capture screenshots and report failures."
+}
+
+

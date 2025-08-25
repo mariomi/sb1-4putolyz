@@ -1,0 +1,217 @@
+[
+  {
+    "id": "TC001",
+    "title": "Verify AuthPage Loads Successfully",
+    "description": "Check that the authentication page loads without errors and all UI elements are visible.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the /auth page on http://localhost:5173"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that the authentication form is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that username and password input fields are visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that the login button is visible and enabled"
+      }
+    ]
+  },
+  {
+    "id": "TC002",
+    "title": "Successful Operator Login with Valid Credentials",
+    "description": "Verify that an operator can successfully log in using valid username and password.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the /auth page on http://localhost:5173"
+      },
+      {
+        "type": "action",
+        "description": "Enter valid operator username in username field"
+      },
+      {
+        "type": "action",
+        "description": "Enter valid operator password in password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the login button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that login is successful and user is redirected from /auth"
+      }
+    ]
+  },
+  {
+    "id": "TC003",
+    "title": "Unsuccessful Login with Invalid Credentials",
+    "description": "Verify that login fails when an invalid username or password is provided, and appropriate error message is displayed.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the /auth page on http://localhost:5173"
+      },
+      {
+        "type": "action",
+        "description": "Enter invalid username in username field"
+      },
+      {
+        "type": "action",
+        "description": "Enter invalid password in password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the login button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that an error message is displayed indicating invalid credentials"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that user remains on the /auth page"
+      }
+    ]
+  },
+  {
+    "id": "TC004",
+    "title": "Verify UI Elements Accessibility and Focus Order",
+    "description": "Ensure that all UI elements in the AuthPage are accessible via keyboard navigation in a logical order.",
+    "category": "ui",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the /auth page on http://localhost:5173"
+      },
+      {
+        "type": "action",
+        "description": "Use tab key to navigate through the form elements"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that the focus moves in logical order: username field, password field, login button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that each control is accessible and interactive via keyboard"
+      }
+    ]
+  },
+  {
+    "id": "TC005",
+    "title": "Verify Empty Username and Password Validation",
+    "description": "Ensure that login fails when username or password is empty and appropriate validation error messages are shown.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the /auth page on http://localhost:5173"
+      },
+      {
+        "type": "action",
+        "description": "Leave username field empty and enter valid password"
+      },
+      {
+        "type": "action",
+        "description": "Click the login button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify validation error message for empty username is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Enter valid username and leave password field empty"
+      },
+      {
+        "type": "action",
+        "description": "Click the login button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify validation error message for empty password is displayed"
+      }
+    ]
+  },
+  {
+    "id": "TC006",
+    "title": "Capture Screenshot on Login Failure",
+    "description": "Verify that a screenshot is captured and saved when login fails due to invalid credentials.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the /auth page on http://localhost:5173"
+      },
+      {
+        "type": "action",
+        "description": "Enter invalid credentials"
+      },
+      {
+        "type": "action",
+        "description": "Click the login button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that a screenshot is automatically captured and saved on login failure"
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "Verify Login Button Disabled Until Input Fields Are Filled",
+    "description": "Ensure that the login button remains disabled until both username and password fields have input.",
+    "category": "ui",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the /auth page on http://localhost:5174"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login button is disabled when both fields are empty"
+      },
+      {
+        "type": "action",
+        "description": "Enter only username"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login button remains disabled"
+      },
+      {
+        "type": "action",
+        "description": "Enter only password and clear username"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login button remains disabled"
+      },
+      {
+        "type": "action",
+        "description": "Enter both username and password"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login button is enabled"
+      }
+    ]
+  }
+]
