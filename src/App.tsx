@@ -17,6 +17,7 @@ import BookingDiscoveryCallPage from './pages/BookingDiscoveryCallPage'
 import { ProjectsPage } from './pages/ProjectsPagePM'
 import { OperatorsPage } from './pages/OperatorsPagePM'
 import { ReportsPage } from './pages/ReportsPagePM'
+import { ClientPage } from './pages/ClientPage'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -98,6 +99,14 @@ function App() {
             }
           />
           <Route path="/virtual-desk" element={<VirtualDeskPage />} />
+          <Route
+            path="/client"
+            element={
+              <ProtectedRoute>
+                <ClientPage />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/*"
             element={

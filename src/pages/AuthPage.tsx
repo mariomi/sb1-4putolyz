@@ -26,7 +26,8 @@ export function AuthPage() {
     const roleRedirects: { [key: string]: string } = {
       'reply_operator': '/reply-operator',
       'admin': '/admin',
-      'project_manager': '/pm-dashboard'
+      'project_manager': '/pm-dashboard',
+      'client': '/client'
     }
     return roleRedirects[role.toLowerCase()] || '/'
   }
@@ -206,6 +207,30 @@ export function AuthPage() {
                   </button>
                 </div>
               </form>
+              
+              {/* Separatore */}
+              <div className="relative my-8">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300"></div>
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white text-gray-500">oppure</span>
+                </div>
+              </div>
+              
+              {/* Pulsante Accesso Cliente */}
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => navigate('/client')}
+                  className="w-full bg-white border-2 border-[#002F6C] text-[#002F6C] py-3 px-6 rounded-lg text-base font-medium hover:bg-[#002F6C] hover:text-white transition-all duration-200 shadow-md hover:shadow-lg"
+                >
+                  Accedi come Cliente
+                </button>
+                <p className="text-xs text-gray-500 mt-2">
+                  Accesso diretto all'area cliente
+                </p>
+              </div>
             </div>
           </div>
         </div>
